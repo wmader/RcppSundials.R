@@ -1,10 +1,12 @@
-RcppSundials
-============
+RcppSundials -- Sundials for R
+==============================
 
-This package consists of a wrapper around Sundials numerical library using Rcpp.
+Wrapper around Sundials numerical library using Rcpp and RcppArmadillo
 
-The necessary Sundials files are included such that the user does not need to have to install Sundials in the system.
+Sundials is a SUite of Nonlinear and DIfferential/ALgebraic Equation Solvers. This packages interfaces R with the solver cvodes and ida. cvodes is a solver for stiff and nonstiff systems of ordinary linear equations, ida solves differential-algebraic equation systems. Sundials files are included such that no local installation of Sundials is required.
 
-The package is built in such a way that the system of ordinary differential equations must be implemented in in C++ using containers from the standard library and the Armadillo library.
+Containers from the C++ stl or the Armadillo library must be used to formulate the system of equations which is to be solved.
 
-Note that this package uses a different interface to that required by the deSolve package. The main different is that interpolation of external forcings is performed by RcppSundials whereas deSolve does not. Also, inputs cannot not passed as global variables (as in the C and Fortran models written for deSolve). The package is also designed in such a way that third packages can call directly the C++ functions in charge of performing the simulation without going through R, which means that computationally intensive tasks such as parameter optimization or sensitivity analyses may be performed faster than otherwise.
+In addition to the main integration function, a couple of other C++ function are exported, such that the user can call these functions directly, without going through R. That way, expensive tasks such as parameter optimization or sensitivity analyses may be performed faster.
+
+The interface \pkg{RcppSundials} is incompatible with the interface provided by \pkg{deSolve}. The main different is that interpolation of external forcings is performed by RcppSundials whereas deSolve does not. Also, inputs cannot be passed as global variables, in contrast to deSolve when models are formulated in the C or Fortran.
