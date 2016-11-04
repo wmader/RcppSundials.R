@@ -6,6 +6,7 @@
 #include <nvector/nvector_serial.h>  // Serial N_Vector
 #include <cvodes/cvodes_dense.h>     // CVDense
 #include <datatypes.h>               // RcppSundials data types and helper functions.
+#include <algorithm>
 #include <string> 
 #include <limits> 
 #include <array>
@@ -228,7 +229,7 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
   ode_in_Cpp_stl* model =  (ode_in_Cpp_stl *) R_ExternalPtrAddr(model_);
   // Wrap the pointer to the jacobian function with the correct signature                        
   jac_in_Cpp_stl* jacobian =  nullptr;
-  if(as<int>(settings["jacobian"]) == 1) 
+  if(as<int>(settings["jacobian"]) == 1)
       jacobian = (jac_in_Cpp_stl *) R_ExternalPtrAddr(jacobian_);
   // Store all inputs in the data struct, prior conversion to stl and Armadillo classes
   int neq = states_.size();
@@ -247,9 +248,8 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
    */
   N_Vector y = nullptr;
   y = N_VNew_Serial(neq);
-  for(int i = 0; i < neq; i++) {
-    NV_Ith_S(y,i) = states[i];
-  }
+  copy(states.begin(), states.end(), NV_DATA_S(y));
+
   void *cvode_mem = nullptr;
   if(as<std::string>(settings["method"]) == "bdf") {
     cvode_mem = CVodeCreate(CV_BDF, CV_NEWTON);     
@@ -262,19 +262,20 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
   }
   
   // Shut up Sundials (errors should not be printed to the screen)
+  // FIXME: But they should go somewhere, may be use a dedicated log file.
   int flag = CVodeSetErrFile(cvode_mem, NULL);
-  if(flag < 0.0) {
+  if(flag < CV_SUCCESS) {
    if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
    if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);}       
-   ::Rf_error("Error in the CVodeSetErrFile function");  
+   ::Rf_error("Error in the CVodeSetErrFile function");
   }
   
   // Initialize the Sundials solver. Here we pass initial N_Vector, the interface function and the initial time
   flag = CVodeInit(cvode_mem, cvode_to_Cpp_stl, times[0], y);
-  if(flag < 0.0) {
+  if(flag < CV_SUCCESS) {
     if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
     if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);}     
-    ::Rf_error("Error in the CVodeInit function"); 
+    ::Rf_error("Error in the CVodeInit function");
   }
   
   // Tell Sundials the tolerance settings for error control
@@ -290,7 +291,7 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
     flag = CVodeSStolerances(cvode_mem, settings["rtol"], settings["atol"]);    
   }
 
-  if(flag < 0.0) {
+  if(flag < CV_SUCCESS) {
     if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
     if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);} 
     ::Rf_error("Error in the CVodeSStolerances function");
@@ -298,7 +299,7 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
   
   // Tell Sundials the number of state variables, so that I can allocate memory for the linear solver
   flag = CVDense(cvode_mem, neq);
-  if(flag < 0.0) {
+  if(flag < CV_SUCCESS) {
     if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
     if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);} 
     ::Rf_error("Error in the CVDense function");
@@ -306,7 +307,7 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
 
   // Give Sundials a pointer to the struct where all the user data is stored. It will be passed (untouched) to the interface as void pointer
   flag = CVodeSetUserData(cvode_mem, &data_model);
-  if(flag < 0.0) {
+  if(flag < CV_SUCCESS) {
     if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
     if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);} 
     ::Rf_error("Error in the CVodeSetUserData function");
@@ -315,7 +316,7 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
   // If we want to provide our own Jacobian, set the interface function to Sundials
   if(as<int>(settings["jacobian"]) == 1) {
     flag = CVDlsSetDenseJacFn(cvode_mem, cvode_to_Cpp_stl_jac);
-    if(flag < 0.0) {
+    if(flag < CV_SUCCESS) {
       if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
       if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);} 
       ::Rf_error("Error in the CVDlsSetDenseJacFn function");
@@ -324,7 +325,7 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
 
   // Set maximum number of steps
   flag = CVodeSetMaxNumSteps(cvode_mem, settings["maxsteps"]);
-  if(flag < 0.0) {
+  if(flag < CV_SUCCESS) {
     if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
     if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);} 
     ::Rf_error("Error in the CVodeSetUserData function");
@@ -332,7 +333,7 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
   
   // Set maximum order of the integration
   flag = CVodeSetMaxOrd(cvode_mem, settings["maxord"]); 
-  if(flag < 0.0) {
+  if(flag < CV_SUCCESS) {
     if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
     if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);} 
     ::Rf_error("Error in the CVodeSetMaxOrd function");
@@ -340,7 +341,7 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
   
   // Set the initial step size
   flag = CVodeSetInitStep(cvode_mem, settings["hini"]);  
-  if(flag < 0.0) {
+  if(flag < CV_SUCCESS) {
     if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
     if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);} 
     ::Rf_error("Error in the CVodeSetInitStep function");
@@ -348,7 +349,7 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
   
   // Set the minimum step size
   flag = CVodeSetMinStep(cvode_mem, settings["hmin"]);  
-  if(flag < 0.0) {
+  if(flag < CV_SUCCESS) {
     if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
     if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);} 
     ::Rf_error("Error in the CVodeSetMinStep function");
@@ -356,31 +357,31 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
   
   // Set the maximum step size
   flag = CVodeSetMaxStep(cvode_mem, settings["hmax"]);  
-  if(flag < 0.0) {
+  if(flag < CV_SUCCESS) {
     if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
     if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);} 
-    ::Rf_error("Error in the CVodeSetMaxStep function");  
+    ::Rf_error("Error in the CVodeSetMaxStep function");
   }
   
   // Set the maximum number of error test fails
   flag = CVodeSetMaxErrTestFails(cvode_mem, settings["maxerr"]);  
-  if(flag < 0.0) {
+  if(flag < CV_SUCCESS) {
     if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
     if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);} 
-    ::Rf_error("Error in the CVodeSetMaxErrTestFails function");  
+    ::Rf_error("Error in the CVodeSetMaxErrTestFails function");
   }
   
   // Set the maximum number of nonlinear iterations per step
   flag = CVodeSetMaxNonlinIters(cvode_mem, settings["maxnonlin"]);  
-  if(flag < 0.0) {
+  if(flag < CV_SUCCESS) {
     if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
     if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);} 
-    ::Rf_error("Error in the CVodeSetMaxNonlinIters function");  
+    ::Rf_error("Error in the CVodeSetMaxNonlinIters function");
   }
   
   // Set the maximum number of convergence failures
   flag = CVodeSetMaxConvFails(cvode_mem, settings["maxconvfail"]);   
-  if(flag < 0.0) {
+  if(flag < CV_SUCCESS) {
     if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
     if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);} 
     ::Rf_error("Error in the CVodeSetMaxConvFails function");
@@ -388,10 +389,10 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
   
   // Set stability limit detection
   flag = CVodeSetStabLimDet(cvode_mem, as<bool>(settings["stability"]));  
-  if(flag < 0.0) {
+  if(flag < CV_SUCCESS) {
     if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
     if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);} 
-    ::Rf_error("Error in the CVodeSetStabLimDet function");  
+    ::Rf_error("Error in the CVodeSetStabLimDet function");
   }
   
   /*
@@ -411,14 +412,14 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
   } catch(...) { 
     if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
     if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);}     
-    ::Rf_error("c++ exception (unknown reason)"); 
+    ::Rf_error("c++ exception (unknown reason)");
   }
   
   // Check length of time derivatives against the information passed through settings
   if(first_call[0].size() != neq) {
     if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
     if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);}     
-    ::Rf_error("Length of time derivatives returned by the model does not coincide with the number of state variables.");     
+    ::Rf_error("Length of time derivatives returned by the model does not coincide with the number of state variables.");
   }
   
   /*
@@ -484,39 +485,39 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
            Rcout << "The state variable at position " << h + 1 << " became smaller than minimum: " << NV_Ith_S(y,h) << " at time: " << times[i] << '\n';
            if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
            if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);}  
-           ::Rf_error("At least one of the states became smaller than minimum"); 
+           ::Rf_error("At least one of the states became smaller than minimum");
          }
         }
       }
-      if(flag < 0.0) {
+      if(flag < CV_SUCCESS) {
         switch(flag) {
-          case -1:
+          case CV_TOO_MUCH_WORK:
             throw std::runtime_error("The solver took mxstep internal steps but could not reach tout."); break;
-          case -2:
+          case CV_TOO_MUCH_ACC:
             throw std::runtime_error("The solver could not satisfy the accuracy demanded by the user for some internal step"); break;  
-          case -3:
+          case CV_ERR_FAILURE:
             throw std::runtime_error("Error test failures occured too many times during one internal time step or minimum step size was reached"); break;    
-          case -4:
+          case CV_CONV_FAILURE:
             throw std::runtime_error("Convergence test failures occurred too many times during one internal time step or minimum step size was reached."); break;  
-          case -5:
+          case CV_LINIT_FAIL:
             throw std::runtime_error("The linear solver’s initialization function failed."); break; 
-          case -6:
+          case CV_LSETUP_FAIL:
             throw std::runtime_error("The linear solver’s setup function failed in an unrecoverable manner"); break; 
-          case -7:
+          case CV_LSOLVE_FAIL:
             throw std::runtime_error("The linear solver’s solve function failed in an unrecoverable manner"); break;  
-          case -8:
+          case CV_RHSFUNC_FAIL:
             throw std::runtime_error("The right hand side function failed in an unrecoverable manner"); break;
-          case -9:
+          case CV_FIRST_RHSFUNC_ERR:
             throw std::runtime_error("The right-hand side function failed at the first call."); break;    
-          case -10:
+          case CV_REPTD_RHSFUNC_ERR:
             throw std::runtime_error("The right-hand side function had repeated recoverable errors."); break;   
-          case -11:
+          case CV_UNREC_RHSFUNC_ERR:
             throw std::runtime_error("The right-hand side function had a recoverable errors but no recovery is possible."); break; 
-          case -25:
+          case CV_BAD_T:
             throw std::runtime_error("The time t is outside the last step taken."); break; 
-          case -26:
+          case CV_BAD_DKY:
             throw std::runtime_error("The output derivative vector is NULL."); break;   
-          case -27:
+          case CV_TOO_CLOSE:
             throw std::runtime_error("The output and initial times are too close to each other."); break;              
         }
       }
@@ -527,7 +528,7 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
     } catch(...) { 
       if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
       if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);}     
-      ::Rf_error("c++ exception (unknown reason)"); 
+      ::Rf_error("c++ exception (unknown reason)");
     }
 
      // Write to the output matrix the new values of state variables and time
