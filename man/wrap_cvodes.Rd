@@ -39,11 +39,13 @@ wrap_cvodes(times, states_, parameters_, forcings_data_, settings, model_,
     Relative integration error tolerance.}
 
     \item{\code{"which_states"}, vector.}{
-    To be found out.
+    Return the first \code{"which_states"}. If the model has \code{N} states,
+    \code{which_states <= N} allows to dicard all states
+    \code{> which_states}
     }
 
     \item{\code{"which_observed"}, vector.}{
-    To be found out.
+    Same as \code{"which_states"}, but for observables.
     }
 
     \item{\code{"maxsteps" = 500}, scalar.}{

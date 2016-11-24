@@ -106,11 +106,13 @@ int cvode_to_Cpp_stl_jac(long int N, double t, N_Vector y, N_Vector fy, DlsMat J
 //'     Relative integration error tolerance.}
 //'
 //'     \item{\code{"which_states"}, vector.}{
-//'     To be found out.
+//'     Return the first \code{"which_states"}. If the model has \code{N} states,
+//'     \code{which_states <= N} allows to dicard all states
+//'     \code{> which_states}
 //'     }
 //'
 //'     \item{\code{"which_observed"}, vector.}{
-//'     To be found out.
+//'     Same as \code{"which_states"}, but for observables.
 //'     }
 //'
 //'     \item{\code{"maxsteps" = 500}, scalar.}{
@@ -232,7 +234,7 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
   if(as<int>(settings["jacobian"]) == 1)
       jacobian = (jac_in_Cpp_stl *) R_ExternalPtrAddr(jacobian_);
   // Store all inputs in the data struct, prior conversion to stl and Armadillo classes
-  int neq = states_.size();
+  auto neq = states_.size();
   vector<double> parameters{as<vector<double>>(parameters_)};
   vector<double> states{as<vector<double>>(states_)};
   vector<mat> forcings_data(forcings_data_.size());
@@ -436,22 +438,21 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
     nder = observed.size();
   }
   
-  vector<int> extract_states = as<vector<int>>(settings["which_states"]);
   vector<int> extract_observed = as<vector<int>>(settings["which_observed"]);
-  
-  mat output(times.size(), extract_states.size() + extract_observed.size() + 1, arma::fill::zeros);
-  output.at(0,0) = times[0];
-  //for(auto i = 0; i < neq; i++) {
-  //    output(0,i+1) = states[i];
-  for(auto it = extract_states.begin(); it != extract_states.end(); it++) {
-    if(*it > NV_LENGTH_S(y)) {
-      Rcout << "The index " << *it << " exceeds the number of state variables of the model" << '\n';
-      if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
-      if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);}        
-      ::Rf_error("Simulation exited because of error in extracting state variables");
-    }
-    output.at(0,*it) = NV_Ith_S(y,*it - 1);
-  }     
+
+
+  // Get number of output states
+  auto noutStates = as<int>(settings["which_states"]);
+  if(noutStates > neq) {
+    if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
+    if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);}
+    ::Rf_error("Number of states to return is larger the number of total states");
+  }
+
+  // Copy all time points and initial states to output
+  mat output(times.size(), 1 + noutStates + extract_observed.size(), arma::fill::zeros);
+  for(auto h = 0; h < times.size(); ++h) output.at(h,0) = times[h];
+  for(auto h = 0; h < noutStates; ++h) output.at(0,h + 1) = states[h];
 
   if(extract_observed.size()  > 0) {
       //for(auto i = 0; i < nder; i++)  
@@ -463,14 +464,14 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
           if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);}            
           ::Rf_error("Simulation exited because of error in extracting observed variables");
         }
-        output.at(0,*it + extract_states.size()) = observed[*it - 1];
+        output.at(0,*it + noutStates) = observed[*it - 1];
       }     
   }
   
-  
-  
+
+
   /*
-   * 
+   *
    Main time loop. Each timestep call cvode. Handle exceptions and fill up output
    *
    */
@@ -531,12 +532,9 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
       ::Rf_error("c++ exception (unknown reason)");
     }
 
-     // Write to the output matrix the new values of state variables and time
-    output.at(i,0) = times[i];
-    //for(auto h = 0; h < neq; h++) output(i,h + 1) = NV_Ith_S(y,h);
-    for(auto it = extract_states.begin(); it != extract_states.end(); it++) {
-      output.at(i,*it) = NV_Ith_S(y,*it - 1);
-    }    
+    // Write states to output
+    // For large noutStates, it might be faster to iterate over ydata = NV_DATA_S(y).
+    for(auto h = 0; h < noutStates; ++h) output(i,h + 1) = NV_Ith_S(y,h);
   }
 
   // If we have observed variables we call the model function again
@@ -552,7 +550,7 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
       // Derived variables already stored by the interface function
       //for(auto j = 0; j < nder; j++)  output(i,j + 1 + neq) = observed[j]; 
       for(auto it = extract_observed.begin(); it != extract_observed.end(); it++) {
-        output.at(i,*it + extract_states.size()) = observed[*it - 1];
+        output.at(i,*it + noutStates) = observed[*it - 1];
       }      
     } 
   }
