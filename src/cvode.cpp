@@ -469,23 +469,27 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
   }
   
 
-
+  // FIXME: For large noutStates, it might be faster to iterate over
+  // ydata = NV_DATA_S(y) instead of using NV_Ith_S(y,i).
   /*
    *
    Main time loop. Each timestep call cvode. Handle exceptions and fill up output
    *
    */
-
+  // Preparations
+  auto checkPositive = as<bool>(settings["positive"]);
+  auto zero = as<double>(settings["minimum"]);
   double t = times[0];
-  for(int i = 1; i < times.size(); i++) {
-    try {
+
+  try {
+    for(int i = 1; i < times.size(); i++) {
       flag = CVode(cvode_mem, times[i], y, &t, CV_NORMAL);
-      if(as<bool>(settings["positive"])) {
+      if(checkPositive) {
         for(auto h = 0; h < neq; h++) {
-         if(NV_Ith_S(y,h) < as<double>(settings["minimum"])) {
+         if(NV_Ith_S(y,h) < zero) {
            Rcout << "The state variable at position " << h + 1 << " became smaller than minimum: " << NV_Ith_S(y,h) << " at time: " << times[i] << '\n';
            if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
-           if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);}  
+           if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);}
            ::Rf_error("At least one of the states became smaller than minimum");
          }
         }
@@ -522,20 +526,20 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
             throw std::runtime_error("The output and initial times are too close to each other."); break;              
         }
       }
-    } catch(std::exception &ex) {
-      if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
-      if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);}     
-      forward_exception_to_r(ex);
-    } catch(...) { 
-      if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
-      if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);}     
-      ::Rf_error("c++ exception (unknown reason)");
-    }
 
-    // Write states to output
-    // For large noutStates, it might be faster to iterate over ydata = NV_DATA_S(y).
-    for(auto h = 0; h < noutStates; ++h) output(i,h + 1) = NV_Ith_S(y,h);
+      // Write states to output
+      for(auto h = 0; h < noutStates; ++h) output(i,h + 1) = NV_Ith_S(y,h);
+    }
+  } catch(std::exception &ex) {
+    if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
+    if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);}
+    forward_exception_to_r(ex);
+  } catch(...) {
+    if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
+    if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);}
+    ::Rf_error("c++ exception (unknown reason)");
   }
+
 
   // If we have observed variables we call the model function again
   if(extract_observed.size() > 0 && flag >= 0.0) {
