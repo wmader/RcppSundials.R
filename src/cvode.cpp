@@ -259,7 +259,7 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
     cvode_mem = CVodeCreate(CV_ADAMS, CV_NEWTON);     
   } else {
     if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
-    if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);}     
+    if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);}
     ::Rf_error("Please choose bdf or adams as method");
   }
   
@@ -429,44 +429,34 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
    Fill up the output matrix with the values for the initial time
    *
    */
-  vector<double> observed;
-  int nder = 0;
-  if(first_call.size() == 2) {
-    vector<double> temp =  first_call[1];
-    observed.resize(temp.size());
-    observed = temp;
-    nder = observed.size();
-  }
-  
-  vector<int> extract_observed = as<vector<int>>(settings["which_observed"]);
-
-
-  // Get number of output states
-  auto noutStates = as<int>(settings["which_states"]);
-  if(noutStates > neq) {
+  // Get and check number of output states and observations
+  auto noutStates = as<long int>(settings["which_states"]);
+  auto noutObserved = as<long int>(settings["which_observed"]);
+  // This must be checked before comparisons to *.size(), as size_type is
+  // unsigned.
+  if(noutStates < 0 or noutObserved < 0) {
     if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
     if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);}
-    ::Rf_error("Number of states to return is larger the number of total states");
+    ::Rf_error("Negative amount of states or observables requested");
   }
 
-  // Copy all time points and initial states to output
-  mat output(times.size(), 1 + noutStates + extract_observed.size(), arma::fill::zeros);
+  if(noutStates > neq or noutObserved > first_call[1].size()) {
+    if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
+    if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);}
+    ::Rf_error("More states or observations requested than provided by the model");
+  }
+
+  if(noutStates == 0 and noutObserved == 0) {
+    if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
+    if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);}
+    ::Rf_error("Request at least one state or observable to be returned");
+  }
+
+  // Copy all time points, initial states and observations into output
+  mat output(times.size(), 1 + noutStates + noutObserved, arma::fill::zeros);
   for(auto h = 0; h < times.size(); ++h) output.at(h,0) = times[h];
   for(auto h = 0; h < noutStates; ++h) output.at(0,h + 1) = states[h];
-
-  if(extract_observed.size()  > 0) {
-      //for(auto i = 0; i < nder; i++)  
-      //    output(0,i + 1 + neq) = observed[i];
-      for(auto it = extract_observed.begin(); it != extract_observed.end(); it++) {
-        if(*it > observed.size()) {
-          Rcout << "The index " << *it << " exceeds the number of observed variables returned by the model" << '\n';
-          if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
-          if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);}            
-          ::Rf_error("Simulation exited because of error in extracting observed variables");
-        }
-        output.at(0,*it + noutStates) = observed[*it - 1];
-      }     
-  }
+  for(auto h = 0; h < noutObserved; ++h) output.at(0,h + noutStates + 1) = states[h];
   
 
   // FIXME: For large noutStates, it might be faster to iterate over
@@ -542,21 +532,17 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
 
 
   // If we have observed variables we call the model function again
-  if(extract_observed.size() > 0 && flag >= 0.0) {
+  if(noutObserved > 0 && flag >= 0.0) {
     for(unsigned i = 1; i < times.size(); i++) {
       // Get forcings values at time 0.
       if(forcings_data.size() > 0) forcings = interpolate_list(forcings_data, times[i]);
       // Get the simulate state variables
       for(auto j = 0; j < neq; j++) states[j] = output(i,j + 1);
       // Call the model function to retrieve total number of outputs and initial values for derived variables
-      std::array<vector<double>, 2> model_call  = model(times[i], states, parameters, forcings); 
-      observed =  model_call[1];
+      std::array<vector<double>, 2> model_call  = model(times[i], states, parameters, forcings);
       // Derived variables already stored by the interface function
-      //for(auto j = 0; j < nder; j++)  output(i,j + 1 + neq) = observed[j]; 
-      for(auto it = extract_observed.begin(); it != extract_observed.end(); it++) {
-        output.at(i,*it + noutStates) = observed[*it - 1];
-      }      
-    } 
+      for(auto h = 0; h < noutObserved; ++h) output(i, h + 1 + noutStates) = model_call[1][h];
+    }
   }
               
   // De-allocate the N_Vector and the cvode_mem structures
