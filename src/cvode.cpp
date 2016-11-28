@@ -241,7 +241,59 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
   if(forcings_data_.size() > 0) 
     for(int i = 0; i < forcings_data_.size(); i++)
       forcings_data[i] = as<mat>(forcings_data_[i]);
-  data_Cpp_stl data_model{parameters, forcings_data, neq, model, jacobian};
+
+
+
+  /*
+   *
+   Make a first call to the model to check that everything is ok and retrieve the number of observed variables
+   *
+   */
+  vector<double> forcings(forcings_data.size());
+  if(forcings_data.size() > 0) forcings = interpolate_list(forcings_data, times[0]);
+  std::array<vector<double>, 2> first_call;
+  try {
+    first_call = model(times[0], states, parameters, forcings);
+  } catch(std::exception &ex) {
+    forward_exception_to_r(ex);
+  } catch(...) {
+    ::Rf_error("c++ exception (unknown reason)");
+  }
+
+  // Check length of time derivatives against the information passed through settings
+  if(first_call[0].size() != neq) {
+    ::Rf_error("Length of time derivatives returned by the model does not coincide with the number of state variables.");
+  }
+
+  /*
+   *
+   F ill up the output matrix with the values for the initial time                    *
+   *
+   */
+  // Get and check number of output states and observations
+  auto noutStates = as<long int>(settings["which_states"]);
+  auto noutObserved = as<long int>(settings["which_observed"]);
+  // This must be checked before comparisons to *.size(), as size_type is
+  // unsigned.
+  if(noutStates < 0 or noutObserved < 0) {
+    ::Rf_error("Negative amount of states or observables requested");
+  }
+
+  if(noutStates > neq or noutObserved > first_call[1].size()) {
+    ::Rf_error("More states or observations requested than provided by the model");
+  }
+
+  if(noutStates == 0 and noutObserved == 0) {
+    ::Rf_error("Request at least one state or observable to be returned");
+  }
+
+  // Copy all time points, initial states and observations into output
+  mat output(times.size(), 1 + noutStates + noutObserved, arma::fill::zeros);
+  for(auto h = 0; h < times.size(); ++h) output.at(h,0) = times[h];
+  for(auto h = 0; h < noutStates; ++h) output.at(0,h + 1) = states[h];
+  for(auto h = 0; h < noutObserved; ++h) output.at(0,h + noutStates + 1) = states[h];
+
+
   
   /*
    *
@@ -308,6 +360,7 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
   }
 
   // Give Sundials a pointer to the struct where all the user data is stored. It will be passed (untouched) to the interface as void pointer
+  data_Cpp_stl data_model{parameters, forcings_data, neq, model, jacobian};
   flag = CVodeSetUserData(cvode_mem, &data_model);
   if(flag < CV_SUCCESS) {
     if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
@@ -397,66 +450,7 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
     ::Rf_error("Error in the CVodeSetStabLimDet function");
   }
   
-  /*
-   * 
-   Make a first call to the model to check that everything is ok and retrieve the number of observed variables
-   *
-   */
-  vector<double> forcings(forcings_data.size());
-  if(forcings_data.size() > 0) forcings = interpolate_list(forcings_data, times[0]);
-  std::array<vector<double>, 2> first_call;
-  try {
-    first_call = model(times[0], states, parameters, forcings); 
-  } catch(std::exception &ex) {
-      if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
-      if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);}     
-      forward_exception_to_r(ex);
-  } catch(...) { 
-    if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
-    if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);}     
-    ::Rf_error("c++ exception (unknown reason)");
-  }
-  
-  // Check length of time derivatives against the information passed through settings
-  if(first_call[0].size() != neq) {
-    if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
-    if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);}     
-    ::Rf_error("Length of time derivatives returned by the model does not coincide with the number of state variables.");
-  }
-  
-  /*
-   * 
-   Fill up the output matrix with the values for the initial time
-   *
-   */
-  // Get and check number of output states and observations
-  auto noutStates = as<long int>(settings["which_states"]);
-  auto noutObserved = as<long int>(settings["which_observed"]);
-  // This must be checked before comparisons to *.size(), as size_type is
-  // unsigned.
-  if(noutStates < 0 or noutObserved < 0) {
-    if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
-    if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);}
-    ::Rf_error("Negative amount of states or observables requested");
-  }
 
-  if(noutStates > neq or noutObserved > first_call[1].size()) {
-    if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
-    if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);}
-    ::Rf_error("More states or observations requested than provided by the model");
-  }
-
-  if(noutStates == 0 and noutObserved == 0) {
-    if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
-    if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);}
-    ::Rf_error("Request at least one state or observable to be returned");
-  }
-
-  // Copy all time points, initial states and observations into output
-  mat output(times.size(), 1 + noutStates + noutObserved, arma::fill::zeros);
-  for(auto h = 0; h < times.size(); ++h) output.at(h,0) = times[h];
-  for(auto h = 0; h < noutStates; ++h) output.at(0,h + 1) = states[h];
-  for(auto h = 0; h < noutObserved; ++h) output.at(0,h + noutStates + 1) = states[h];
   
 
   // FIXME: For large noutStates, it might be faster to iterate over
