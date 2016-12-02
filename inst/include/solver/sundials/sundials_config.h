@@ -1,7 +1,7 @@
 /*
  * -----------------------------------------------------------------
- * $Revision: 1.6 $
- * $Date: 2010/12/15 22:45:17 $
+ * $Revision: 4895 $
+ * $Date: 2016-09-05 16:57:24 -0700 (Mon, 05 Sep 2016) $
  * ----------------------------------------------------------------- 
  * Programmer(s): Aaron Collier and Radu Serban @ LLNL
  * -----------------------------------------------------------------
@@ -15,7 +15,7 @@
  */
 
 /* Define SUNDIALS version number */
-#define SUNDIALS_PACKAGE_VERSION "2.5.0"
+#define SUNDIALS_PACKAGE_VERSION "2.7.0"
 
 /* FCMIX: Define Fortran name-mangling macro for C identifiers.
  * Depending on the inferred scheme, one of the following six
@@ -49,13 +49,29 @@
  */
 #define SUNDIALS_USE_GENERIC_MATH
 
+/* Use POSIX timers if available.
+ *     #define SUNDIALS_HAVE_POSIX_TIMERS
+ */
+#define SUNDIALS_HAVE_POSIX_TIMERS
+
 /* Blas/Lapack available
  * If working libraries for Blas/lapack support were found, then
- *     #define SUNDIALS_BLAS_LAPACK 1
- * otherwise
- *     #define SUNDIALS_BLAS_LAPACK 0
+ *     #define SUNDIALS_BLAS_LAPACK
  */
-#define SUNDIALS_BLAS_LAPACK 0
+/* #undef SUNDIALS_BLAS_LAPACK */
+
+/* SUPERLUMT available
+ * If working libraries for SUPERLUMT support were found, then
+ *     #define SUNDIALS_SUPERLUMT 
+ */
+/* #undef SUNDIALS_SUPERLUMT */
+/* #undef SUNDIALS_SUPERLUMT_THREAD_TYPE */
+
+/* KLU available
+ * If working libraries for KLU support were found, then
+ *     #define SUNDIALS_KLU 
+ */
+/* #undef SUNDIALS_KLU */
 
 /* FNVECTOR: Allow user to specify different MPI communicator
  * If it was found that the MPI implementation supports MPI_Comm_f2c, then

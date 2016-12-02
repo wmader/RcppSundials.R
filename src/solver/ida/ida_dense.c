@@ -1,14 +1,14 @@
 /*
  * -----------------------------------------------------------------
- * $Revision: 4075 $
- * $Date: 2014-04-24 10:46:58 -0700 (Thu, 24 Apr 2014) $
- * -----------------------------------------------------------------
+ * $Revision: 4951 $
+ * $Date: 2016-09-22 10:21:00 -0700 (Thu, 22 Sep 2016) $
+ * ----------------------------------------------------------------- 
  * Programmer(s): Alan C. Hindmarsh and Radu Serban @ LLNL
  * -----------------------------------------------------------------
  * LLNS Copyright Start
  * Copyright (c) 2014, Lawrence Livermore National Security
- * This work was performed under the auspices of the U.S. Department
- * of Energy by Lawrence Livermore National Laboratory in part under
+ * This work was performed under the auspices of the U.S. Department 
+ * of Energy by Lawrence Livermore National Laboratory in part under 
  * Contract W-7405-Eng-48 and in part under Contract DE-AC52-07NA27344.
  * Produced at the Lawrence Livermore National Laboratory.
  * All rights reserved.
@@ -23,8 +23,8 @@
 #include <stdlib.h>
 
 #include <ida/ida_dense.h>
-#include <ida/ida_direct_impl.h>
-#include <ida/ida_impl.h>
+#include "ida_direct_impl.h"
+#include "ida_impl.h"
 
 #include <sundials/sundials_math.h>
 
@@ -35,7 +35,7 @@
 #define TWO          RCONST(2.0)
 
 /* IDADENSE linit, lsetup, lsolve, and lfree routines */
-
+ 
 static int IDADenseInit(IDAMem IDA_mem);
 
 static int IDADenseSetup(IDAMem IDA_mem, N_Vector yyp, N_Vector ypp,
@@ -75,13 +75,13 @@ static int IDADenseFree(IDAMem IDA_mem);
 #define nreDQ        (idadls_mem->d_nreDQ)
 #define jacdata      (idadls_mem->d_J_data)
 #define last_flag    (idadls_mem->d_last_flag)
-
+                  
 /*
  * -----------------------------------------------------------------
  * IDADense
  * -----------------------------------------------------------------
  * This routine initializes the memory record and sets various function
- * fields specific to the IDADENSE linear solver module.
+ * fields specific to the IDADENSE linear solver module.  
  * IDADense first calls the existing lfree routine if this is not NULL.
  * Then it sets the ida_linit, ida_lsetup, ida_lsolve, ida_lperf, and
  * ida_lfree fields in (*IDA_mem) to be IDADenseInit, IDADenseSetup,
@@ -91,14 +91,14 @@ static int IDADenseFree(IDAMem IDA_mem);
  * It sets setupNonNull in (*IDA_mem) to TRUE, sets the d_jdata field
  * in the IDADlsMemRec structure to be the input parameter jdata,
  * and sets the d_jac field to be:
- *   (1) the input parameter djac, if djac != NULL, or
- *   (2) IDADenseDQJac, if djac == NULL.
+ *   (1) the input parameter djac, if djac != NULL, or                
+ *   (2) IDADenseDQJac, if djac == NULL.                             
  * Finally, it allocates memory for JJ and lpivots.
  * The return value is IDADLS_SUCCESS = 0, IDADLS_LMEM_FAIL = -1,
  * or IDADLS_ILL_INPUT = -2.
  *
  * NOTE: The dense linear solver assumes a serial implementation
- *       of the NVECTOR package. Therefore, IDADense will first
+ *       of the NVECTOR package. Therefore, IDADense will first 
  *       test for a compatible N_Vector internal
  *       representation by checking that the functions N_VGetArrayPointer
  *       and N_VSetArrayPointer exist.
@@ -109,7 +109,6 @@ int IDADense(void *ida_mem, long int Neq)
 {
   IDAMem IDA_mem;
   IDADlsMem idadls_mem;
-  int flag;
 
   /* Return immediately if ida_mem is NULL. */
   if (ida_mem == NULL) {
@@ -125,7 +124,7 @@ int IDADense(void *ida_mem, long int Neq)
     return(IDADLS_ILL_INPUT);
   }
 
-  if (lfree != NULL) flag = lfree(IDA_mem);
+  if (lfree != NULL) lfree(IDA_mem);
 
   /* Set five main function fields in IDA_mem. */
   linit  = IDADenseInit;
@@ -151,6 +150,8 @@ int IDADense(void *ida_mem, long int Neq)
   jacdata = NULL;
 
   last_flag = IDADLS_SUCCESS;
+
+  idaDlsInitializeCounters(idadls_mem);
 
   setupNonNull = TRUE;
 
@@ -195,12 +196,14 @@ int IDADense(void *ida_mem, long int Neq)
 static int IDADenseInit(IDAMem IDA_mem)
 {
   IDADlsMem idadls_mem;
-
+  
   idadls_mem = (IDADlsMem) lmem;
 
-
-  nje   = 0;
-  nreDQ = 0;
+  idaDlsInitializeCounters(idadls_mem);
+  /*
+   nje   = 0;
+   nreDQ = 0;
+  */
 
   if (jacDQ) {
     djac = idaDlsDenseDQJac;
@@ -208,13 +211,13 @@ static int IDADenseInit(IDAMem IDA_mem)
   } else {
     jacdata = IDA_mem->ida_user_data;
   }
-
+  
   last_flag = 0;
   return(0);
 }
 
 /*
-  This routine does the setup operations for the IDADENSE linear
+  This routine does the setup operations for the IDADENSE linear 
   solver module.  It calls the Jacobian evaluation routine,
   updates counters, and calls the dense LU factorization routine.
   The return value is either
@@ -231,7 +234,7 @@ static int IDADenseSetup(IDAMem IDA_mem, N_Vector yyp, N_Vector ypp,
   int retval;
   long int retfac;
   IDADlsMem idadls_mem;
-
+  
   idadls_mem = (IDADlsMem) lmem;
 
   /* Increment nje counter. */
@@ -239,7 +242,7 @@ static int IDADenseSetup(IDAMem IDA_mem, N_Vector yyp, N_Vector ypp,
 
   /* Zero out JJ; call Jacobian routine jac; return if it failed. */
   SetToZero(JJ);
-  retval = djac(neq, tn, cj, yyp, ypp, rrp, JJ, jacdata,
+  retval = djac(neq, tn, cj, yyp, ypp, rrp, JJ, jacdata, 
                 tmp1, tmp2, tmp3);
   if (retval < 0) {
     IDAProcessError(IDA_mem, IDADLS_JACFUNC_UNRECVR, "IDADENSE", "IDADenseSetup", MSGD_JACFUNC_FAILED);
@@ -273,9 +276,9 @@ static int IDADenseSolve(IDAMem IDA_mem, N_Vector b, N_Vector weight,
 {
   IDADlsMem idadls_mem;
   realtype *bd;
-
+  
   idadls_mem = (IDADlsMem) lmem;
-
+  
   bd = N_VGetArrayPointer(b);
 
   DenseGETRS(JJ, lpivots, bd);
@@ -296,7 +299,7 @@ static int IDADenseFree(IDAMem IDA_mem)
   IDADlsMem idadls_mem;
 
   idadls_mem = (IDADlsMem) lmem;
-
+  
   DestroyMat(JJ);
   DestroyArray(lpivots);
   free(lmem); lmem = NULL;

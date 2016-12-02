@@ -29,7 +29,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#include <cvodes/cvodes_impl.h>
+#include "cvodes_impl.h"
 #include <sundials/sundials_types.h>
 
 /* 
