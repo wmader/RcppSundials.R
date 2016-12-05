@@ -44,7 +44,7 @@ int cvode_to_Cpp_stl(double t, N_Vector y, N_Vector ydot, void* inputs) {
   return 0; 
 }
 
-// Interface between cvode integrator and the jacobian function written in R
+// Interface cvode with std container Jacobian function.
 int cvode_to_Cpp_stl_jac(long int N, double t, N_Vector y, N_Vector fy, DlsMat Jac, 
                    void *inputs, N_Vector tmp1, N_Vector tmp2, N_Vector tmp3) {
   // Cast the void pointer back to the correct data structure
@@ -53,18 +53,25 @@ int cvode_to_Cpp_stl_jac(long int N, double t, N_Vector y, N_Vector fy, DlsMat J
   vector<double> forcings(data->forcings_data.size());
   if(data->forcings_data.size() > 0) forcings = interpolate_list(data->forcings_data, t);
   // Extract the states from the NV_Ith_S container
-  vector<double> states(data->neq);
-  for(auto i = 0; i < data->neq ; i++) states[i] = NV_Ith_S(y,i);
+  auto neq = data->neq;
+  vector<double> states(neq);
+  for(auto i = 0; i < neq ; i++) states[i] = NV_Ith_S(y,i);
   // Get the Jacobian
-  mat output = data->jacobian(t, states, data->parameters, forcings);  
+  auto output = data->jacobian(t, states, data->parameters, forcings);
   // Return the DlsMat
-  for(int j = 0; j < output.n_cols; j++) {
-    for(int i= 0; i < output.n_rows; i++) {
-      DENSE_ELEM(Jac, i, j) = output(i,j);
-    }
+  if(output.size() not_eq neq * neq) {
+    ::Rf_error("Wrong size of Jacobian matrix.");
   }
+  auto it = output.cbegin();
+  for(int i = 0; i < neq; ++i) {
+    copy(it, it + neq, DENSE_COL(Jac, i));
+    advance(it, neq);
+  }
+
   return 0;
 }
+
+
 
 //' Solve an inital value problem with cvodes.
 //'
@@ -243,7 +250,6 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
       forcings_data[i] = as<mat>(forcings_data_[i]);
 
 
-
   /*
    *
    Make a first call to the model to check that everything is ok and retrieve the number of observed variables
@@ -267,7 +273,7 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
 
   /*
    *
-   F ill up the output matrix with the values for the initial time                    *
+   Fill up the output matrix with the values for the initial time                    *
    *
    */
   // Get and check number of output states and observations
@@ -302,7 +308,7 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
    */
   N_Vector y = nullptr;
   y = N_VNew_Serial(neq);
-  copy(states.begin(), states.end(), NV_DATA_S(y));
+  copy(states.cbegin(), states.cend(), NV_DATA_S(y));
 
   void *cvode_mem = nullptr;
   if(as<std::string>(settings["method"]) == "bdf") {

@@ -7,13 +7,14 @@
 #include <RcppArmadillo.h>
 #include <array>
 
-typedef std::array<std::vector<double>, 2> ode_in_Cpp_stl(const double& t, const std::vector<double>& states, 
+typedef std::array<std::vector<double>, 2> ode_in_Cpp_stl(const double& t, const std::vector<double>& states,
             const std::vector<double>& parameters, const std::vector<double>& forcings);
-typedef std::array<std::vector<double>, 2> dae_in_Cpp_stl(const double& t, const std::vector<double>& states, 
-            const std::vector<double>& derivatives, const std::vector<double>& parameters, 
+typedef std::array<std::vector<double>, 2> dae_in_Cpp_stl(const double& t, const std::vector<double>& states,
+            const std::vector<double>& derivatives, const std::vector<double>& parameters,
             const std::vector<double>& forcings);
-typedef arma::mat jac_in_Cpp_stl(const double& t, const std::vector<double>& states, 
+typedef std::vector<double> jac_in_Cpp_stl(const double& t, const std::vector<double>& states,
             const std::vector<double>& parameters, const std::vector<double>& forcings);
+
             
 // Struct that contains the data to run R models
 struct data_R {
