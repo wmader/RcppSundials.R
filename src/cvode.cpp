@@ -95,9 +95,9 @@ int cvode_to_Cpp_stl_jac(long int N, double t, N_Vector y, N_Vector fy, DlsMat J
 //'     \href{http://computation.llnl.gov/projects/sundials/sundials-software}{Sundials homepage}.
 //'     Supported settings are
 //'     \describe{
-//'     \item{\code{"jacobian"}, scalar, can be 1 or not 1.}{
-//'     For \code{"jacobian" = 1}, the Jacobian matrix of the system must be
-//'     provided by \option{jacobian_}.}
+//'     \item{\code{"jacobian"}, bool.}{
+//'     For \code{"jacobian" = TRUE}, a function returning the Jacobian matrix
+//'     of the system must be provided by \option{jacobian_}.}
 //'
 //'     \item{\code{"method"}, string, can be \code{"bdf"} or \code{"adams"}.}{
 //'     The integration method used. For "bdf" \code{CVodeCreate(CV_BDF, CV_NEWTON)}
@@ -238,7 +238,7 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
   ode_in_Cpp_stl* model =  (ode_in_Cpp_stl *) R_ExternalPtrAddr(model_);
   // Wrap the pointer to the jacobian function with the correct signature                        
   jac_in_Cpp_stl* jacobian =  nullptr;
-  if(as<int>(settings["jacobian"]) == 1)
+  if(as<bool>(settings["jacobian"]))
       jacobian = (jac_in_Cpp_stl *) R_ExternalPtrAddr(jacobian_);
   // Store all inputs in the data struct, prior conversion to stl and Armadillo classes
   auto neq = states_.size();
@@ -375,7 +375,7 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
   }
   
   // If we want to provide our own Jacobian, set the interface function to Sundials
-  if(as<int>(settings["jacobian"]) == 1) {
+  if(as<bool>(settings["jacobian"])) {
     flag = CVDlsSetDenseJacFn(cvode_mem, cvode_to_Cpp_stl_jac);
     if(flag < CV_SUCCESS) {
       if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}

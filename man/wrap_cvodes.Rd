@@ -21,9 +21,9 @@ wrap_cvodes(times, states_, parameters_, forcings_data_, settings, model_,
     \href{http://computation.llnl.gov/projects/sundials/sundials-software}{Sundials homepage}.
     Supported settings are
     \describe{
-    \item{\code{"jacobian"}, scalar, can be 1 or not 1.}{
-    For \code{"jacobian" = 1}, the Jacobian matrix of the system must be
-    provided by \option{jacobian_}.}
+    \item{\code{"jacobian"}, bool.}{
+    For \code{"jacobian" = TRUE}, a function returning the Jacobian matrix
+    of the system must be provided by \option{jacobian_}.}
 
     \item{\code{"method"}, string, can be \code{"bdf"} or \code{"adams"}.}{
     The integration method used. For "bdf" \code{CVodeCreate(CV_BDF, CV_NEWTON)}
