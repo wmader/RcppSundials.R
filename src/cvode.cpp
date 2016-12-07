@@ -241,7 +241,7 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
   if(as<bool>(settings["jacobian"]))
       jacobian = (jac_in_Cpp_stl *) R_ExternalPtrAddr(jacobian_);
   // Store all inputs in the data struct, prior conversion to stl and Armadillo classes
-  auto neq = states_.size();
+  const auto neq = states_.size();
   vector<double> parameters{as<vector<double>>(parameters_)};
   vector<double> states{as<vector<double>>(states_)};
   vector<mat> forcings_data(forcings_data_.size());
@@ -265,6 +265,7 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
   } catch(...) {
     ::Rf_error("c++ exception (unknown reason)");
   }
+
 
   // Check length of time derivatives against the information passed through settings
   if(first_call[0].size() != neq) {
@@ -293,12 +294,13 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
     ::Rf_error("Request at least one state or observable to be returned");
   }
 
-  // Copy all time points, initial states and observations into output
-  mat output(times.size(), 1 + noutStates + noutObserved, arma::fill::zeros);
-  for(auto h = 0; h < times.size(); ++h) output.at(h,0) = times[h];
-  for(auto h = 0; h < noutStates; ++h) output.at(0,h + 1) = states[h];
-  for(auto h = 0; h < noutObserved; ++h) output.at(0,h + noutStates + 1) = states[h];
-
+  // Copy all time points, initial states and observations into output.
+  // As observations can depend on all states, all states, not only the first
+  // noutStates are considered.
+  mat output(times.size(), 1 + neq + noutObserved, arma::fill::zeros);
+  for(auto h = 0; h < times.size(); ++h) output.at(h, 0) = times[h];
+  for(auto h = 0; h < neq; ++h) output.at(0, h + 1) = states[h];
+  for(auto h = 0; h < noutObserved; ++h) output.at(0, h + 1 + neq) = first_call[1][h];
 
   
   /*
@@ -518,7 +520,7 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
       }
 
       // Write states to output
-      for(auto h = 0; h < noutStates; ++h) output(i,h + 1) = NV_Ith_S(y,h);
+      for(auto h = 0; h < neq; ++h) output(i, h + 1) = NV_Ith_S(y,h);
     }
   } catch(std::exception &ex) {
     if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
@@ -541,15 +543,21 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
       // Call the model function to retrieve total number of outputs and initial values for derived variables
       std::array<vector<double>, 2> model_call  = model(times[i], states, parameters, forcings);
       // Derived variables already stored by the interface function
-      for(auto h = 0; h < noutObserved; ++h) output(i, h + 1 + noutStates) = model_call[1][h];
+      for(auto h = 0; h < noutObserved; ++h) output(i, h + 1 + neq) = model_call[1][h];
     }
   }
               
   // De-allocate the N_Vector and the cvode_mem structures
   if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
-  if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);}     
+  if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);}
 
-  return wrap(output);
+  // Subset output for time, noutStates, and noutObserved.
+  vector<unsigned int> idxAux(1 + noutStates + noutObserved, 0);
+  iota(idxAux.begin() + 1, idxAux.begin() + 1 + noutStates, 1);
+  iota(idxAux.begin() + 1 + noutStates, idxAux.end(), neq + 1);
+  arma::uvec idx(idxAux);
+
+  return wrap(static_cast<mat>(output.cols(idx)));
 }
 
 //' Allows calling the model that calculates the time derivatives
