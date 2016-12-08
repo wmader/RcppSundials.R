@@ -359,7 +359,7 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
     ::Rf_error("Error in the CVodeSStolerances function");
   }
   
-  // Tell Sundials the number of state variables, so that I can allocate memory for the linear solver
+  // Select direct linear solver for dense matrices.
   flag = CVDense(cvode_mem, neq);
   if(flag < CV_SUCCESS) {
     if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}

@@ -29,7 +29,7 @@ struct data_R {
 struct data_Cpp_stl {
   std::vector<double> parameters;
   const std::vector<arma::mat> forcings_data;
-  const int neq;
+  const long int neq;
   ode_in_Cpp_stl* model;
   jac_in_Cpp_stl* jacobian;
 };
