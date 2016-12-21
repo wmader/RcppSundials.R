@@ -81,10 +81,13 @@ int cvode_to_Cpp_stl_jac(long int N, double t, N_Vector y, N_Vector fy, DlsMat J
 //'     Numeric vector of time points at which integration results are returned.
 //'
 //' @param states_
-//'     Numeric vector of inital values for all states.
+//'     Numeric vector of inital values for states.
 //'
 //' @param parameters_
 //'     Numeric vector of model parameters values.
+//'
+//' @param initSens_
+//'     Numeric vector of inital values for sensitivities.
 //'
 //' @param forcings_data_
 //'     List of forcings acting on the system.
@@ -159,6 +162,9 @@ int cvode_to_Cpp_stl_jac(long int N, double t, N_Vector y, N_Vector fy, DlsMat J
 //'     \item{\code{"minimum"}, scalar.}{
 //'     Lower bound below which a state is assumed negative and reported, in
 //'     case \option{\code{"positive" = TRUE}}.}
+//'
+//'     \item{\code{"sensitivities"} = FALSE, bool.}{
+//'     Integrate sensitivities of the dynamic system.}
 //'     }
 //'
 //' @param model_ The address of the ode model. The address is obtained as the
@@ -231,17 +237,25 @@ int cvode_to_Cpp_stl_jac(long int N, double t, N_Vector y, N_Vector fy, DlsMat J
 //'
 //' @export
 // [[Rcpp::export]]
-NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_, 
-                        NumericVector parameters_, List forcings_data_, 
-                        List settings, SEXP model_, SEXP jacobian_) {
-  // Wrap the pointer to the model function with the correct signature                        
-  ode_in_Cpp_stl* model =  (ode_in_Cpp_stl *) R_ExternalPtrAddr(model_);
-  // Wrap the pointer to the jacobian function with the correct signature                        
-  jac_in_Cpp_stl* jacobian =  nullptr;
-  if(as<bool>(settings["jacobian"]))
-      jacobian = (jac_in_Cpp_stl *) R_ExternalPtrAddr(jacobian_);
+NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
+                          NumericVector parameters_, NumericVector initSens_,
+                          List forcings_data_,
+                          List settings, SEXP model_, SEXP jacobian_,
+                          SEXP sens_
+                         ) {
+  // Cast SEXP to correct function pointers
+  ode_in_Cpp_stl* model = (ode_in_Cpp_stl *) R_ExternalPtrAddr(model_);
+
+  jac_in_Cpp_stl* jacobian = nullptr;
+  auto isJac = as<bool>(settings["jacobian"]);
+  if(isJac) jacobian = (jac_in_Cpp_stl *) R_ExternalPtrAddr(jacobian_);
+
+  ode_in_Cpp_stl* sens = nullptr;
+  auto isSens = as<bool>(settings["sensitivities"]);
+  if(isSens) sens = (ode_in_Cpp_stl *) R_ExternalPtrAddr(sens_);
+
+
   // Store all inputs in the data struct, prior conversion to stl and Armadillo classes
-  const auto neq = states_.size();
   vector<double> parameters{as<vector<double>>(parameters_)};
   vector<double> states{as<vector<double>>(states_)};
   vector<mat> forcings_data(forcings_data_.size());
@@ -268,6 +282,7 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
 
 
   // Check length of time derivatives against the information passed through settings
+  const auto neq = states.size();
   if(first_call[0].size() != neq) {
     ::Rf_error("Length of time derivatives returned by the model does not coincide with the number of state variables.");
   }
@@ -459,6 +474,25 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
   }
   
 
+  /*
+   *
+   * Enables sensitivity calculation.
+   *
+   */
+  if(isSens) {
+    // Set up sensitivities
+    auto Ns = neq + parameters.size();
+    N_Vector* yS = N_VCloneVectorArray_Serial(Ns, y);
+
+    vector<double> sensitivities{as<vector<double>>(initSens_)};
+    auto it = sensitivities.cbegin();
+    for(int i = 0; i < Ns; ++i) {
+      copy(it, it + neq, NV_DATA_S(yS[i]));
+      advance(it, neq);
+    }
+    for(int i = 0; i < Ns; ++i) N_VPrint_Serial(yS[i]);
+  }
+
   
 
   // FIXME: For large noutStates, it might be faster to iterate over
@@ -482,7 +516,7 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
            Rcout << "The state variable at position " << h + 1 << " became smaller than minimum: " << NV_Ith_S(y,h) << " at time: " << times[i] << '\n';
            if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
            if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);}
-           ::Rf_error("At least one of the states became smaller than minimum");
+           ::Rf_error("At least one state became smaller than minimum");
          }
         }
       }

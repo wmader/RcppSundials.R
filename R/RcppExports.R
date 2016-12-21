@@ -9,10 +9,13 @@
 #'     Numeric vector of time points at which integration results are returned.
 #'
 #' @param states_
-#'     Numeric vector of inital values for all states.
+#'     Numeric vector of inital values for states.
 #'
 #' @param parameters_
 #'     Numeric vector of model parameters values.
+#'
+#' @param initSens_
+#'     Numeric vector of inital values for sensitivities.
 #'
 #' @param forcings_data_
 #'     List of forcings acting on the system.
@@ -87,6 +90,9 @@
 #'     \item{\code{"minimum"}, scalar.}{
 #'     Lower bound below which a state is assumed negative and reported, in
 #'     case \option{\code{"positive" = TRUE}}.}
+#'
+#'     \item{\code{"sensitivities"} = FALSE, bool.}{
+#'     Integrate sensitivities of the dynamic system.}
 #'     }
 #'
 #' @param model_ The address of the ode model. The address is obtained as the
@@ -158,8 +164,8 @@
 #' @author Alejandro Morales, \email{morales.s.alejandro@@gmail.com}
 #'
 #' @export
-wrap_cvodes <- function(times, states_, parameters_, forcings_data_, settings, model_, jacobian_) {
-    .Call('RcppSundials_wrap_cvodes', PACKAGE = 'RcppSundials', times, states_, parameters_, forcings_data_, settings, model_, jacobian_)
+wrap_cvodes <- function(times, states_, parameters_, initSens_, forcings_data_, settings, model_, jacobian_, sens_) {
+    .Call('RcppSundials_wrap_cvodes', PACKAGE = 'RcppSundials', times, states_, parameters_, initSens_, forcings_data_, settings, model_, jacobian_, sens_)
 }
 
 #' Allows calling the model that calculates the time derivatives

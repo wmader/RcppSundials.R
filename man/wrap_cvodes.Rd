@@ -4,15 +4,17 @@
 \alias{wrap_cvodes}
 \title{Solve an inital value problem with cvodes.}
 \usage{
-wrap_cvodes(times, states_, parameters_, forcings_data_, settings, model_,
-  jacobian_)
+wrap_cvodes(times, states_, parameters_, initSens_, forcings_data_, settings,
+  model_, jacobian_, sens_)
 }
 \arguments{
 \item{times}{Numeric vector of time points at which integration results are returned.}
 
-\item{states_}{Numeric vector of inital values for all states.}
+\item{states_}{Numeric vector of inital values for states.}
 
 \item{parameters_}{Numeric vector of model parameters values.}
+
+\item{initSens_}{Numeric vector of inital values for sensitivities.}
 
 \item{forcings_data_}{List of forcings acting on the system.}
 
@@ -85,6 +87,9 @@ wrap_cvodes(times, states_, parameters_, forcings_data_, settings, model_,
     \item{\code{"minimum"}, scalar.}{
     Lower bound below which a state is assumed negative and reported, in
     case \option{\code{"positive" = TRUE}}.}
+
+    \item{\code{"sensitivities"} = FALSE, bool.}{
+    Integrate sensitivities of the dynamic system.}
     }}
 
 \item{model_}{The address of the ode model. The address is obtained as the
