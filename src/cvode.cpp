@@ -73,6 +73,19 @@ int cvode_to_Cpp_stl_jac(long int N, double t, N_Vector y, N_Vector fy, DlsMat J
 
 
 
+// CVSensRhsFn, interface
+int CVSensRhsFnIf(int Ns, double t, N_Vector y, N_Vector ydot,
+                  N_Vector *yS, N_Vector *ySdot,
+                  void *user_data,
+                  N_Vector tmp1, N_Vector tmp2) {
+  int len = N_VGetLength_Serial(ySdot[0]);
+  for(int i = 0; i < Ns; ++i) {
+    memcpy(NV_DATA_S(ySdot[i]), NV_DATA_S(yS[i]), len*sizeof(double));
+  }
+}
+
+
+
 //' Solve an inital value problem with cvodes.
 //'
 //' @description Wrapper around the solver cvodes from the Sundials suite.
@@ -238,11 +251,10 @@ int cvode_to_Cpp_stl_jac(long int N, double t, N_Vector y, N_Vector fy, DlsMat J
 //' @export
 // [[Rcpp::export]]
 NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
-                          NumericVector parameters_, NumericVector initSens_,
-                          List forcings_data_,
-                          List settings, SEXP model_, SEXP jacobian_,
-                          SEXP sens_
-                         ) {
+                NumericVector parameters_, NumericVector initSens_,
+                List forcings_data_,
+                List settings,
+                SEXP model_, SEXP jacobian_, SEXP sens_) {
   // Cast SEXP to correct function pointers
   ode_in_Cpp_stl* model = (ode_in_Cpp_stl *) R_ExternalPtrAddr(model_);
 
@@ -282,7 +294,7 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
 
 
   // Check length of time derivatives against the information passed through settings
-  const auto neq = states.size();
+  const int neq = states.size();
   if(first_call[0].size() != neq) {
     ::Rf_error("Length of time derivatives returned by the model does not coincide with the number of state variables.");
   }
@@ -317,7 +329,7 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
   for(auto h = 0; h < neq; ++h) output.at(0, h + 1) = states[h];
   for(auto h = 0; h < noutObserved; ++h) output.at(0, h + 1 + neq) = first_call[1][h];
 
-  
+
   /*
    *
    Initialize CVODE and pass all initial inputs
@@ -479,18 +491,35 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
    * Enables sensitivity calculation.
    *
    */
+  // Set up sensitivities
+  const int Ns = neq + parameters.size();
+  N_Vector* yS = N_VCloneVectorArray_Serial(Ns, y);
   if(isSens) {
-    // Set up sensitivities
-    auto Ns = neq + parameters.size();
-    N_Vector* yS = N_VCloneVectorArray_Serial(Ns, y);
-
+    // Copy sensitivity initials to output vector.
     vector<double> sensitivities{as<vector<double>>(initSens_)};
     auto it = sensitivities.cbegin();
     for(int i = 0; i < Ns; ++i) {
       copy(it, it + neq, NV_DATA_S(yS[i]));
       advance(it, neq);
     }
-    for(int i = 0; i < Ns; ++i) N_VPrint_Serial(yS[i]);
+
+    // Switch on sensitivity calculation in cvodes
+    flag = CVodeSensInit(cvode_mem, Ns, CV_SIMULTANEOUS, CVSensRhsFnIf, yS);
+    if(flag < CV_SUCCESS) {
+      if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
+      if(yS == nullptr) {free(yS);} else {N_VDestroyVectorArray_Serial(yS, Ns);}
+      if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);}
+      ::Rf_error("Error in the CVodeSensInit function");
+    }
+
+    // FIXME: Use scalar tolerances.
+    flag = CVodeSensEEtolerances(cvode_mem);
+    if(flag < CV_SUCCESS) {
+      if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
+      if(yS == nullptr) {free(yS);} else {N_VDestroyVectorArray_Serial(yS, Ns);}
+      if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);}
+      ::Rf_error("Error in the CVodeSensEEtolerances function");
+    }
   }
 
   
@@ -506,6 +535,7 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
   auto checkPositive = as<bool>(settings["positive"]);
   auto zero = as<double>(settings["minimum"]);
   double t = times[0];
+  double tret = 0;
 
   try {
     for(int i = 1; i < times.size(); i++) {
@@ -549,12 +579,20 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
           case CV_BAD_DKY:
             throw std::runtime_error("The output derivative vector is NULL."); break;   
           case CV_TOO_CLOSE:
-            throw std::runtime_error("The output and initial times are too close to each other."); break;              
+            throw std::runtime_error("The output and initial times are too close to each other."); break;
+          case CV_ILL_INPUT:
+            throw std::runtime_error("Input to CVode or to its solver illegal or missing."); break;
+          default:
+            throw std::runtime_error(std::string("CVodes error code: ") + std::to_string(flag)); break;
         }
       }
 
       // Write states to output
       for(auto h = 0; h < neq; ++h) output(i, h + 1) = NV_Ith_S(y,h);
+
+      // Write sensitivities to output
+      flag = CVodeGetSens(cvode_mem, &tret, yS);
+
     }
   } catch(std::exception &ex) {
     if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
@@ -569,7 +607,7 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
 
   // If we have observed variables we call the model function again
   if(noutObserved > 0 && flag >= 0.0) {
-    for(unsigned i = 1; i < times.size(); i++) {
+    for(unsigned int i = 1; i < times.size(); ++i) {
       // Get forcings values at time 0.
       if(forcings_data.size() > 0) forcings = interpolate_list(forcings_data, times[i]);
       // Get the simulate state variables
@@ -580,9 +618,10 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
       for(auto h = 0; h < noutObserved; ++h) output(i, h + 1 + neq) = model_call[1][h];
     }
   }
-              
+
   // De-allocate the N_Vector and the cvode_mem structures
-  if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
+  if(y == nullptr) {free(y);} else { N_VDestroy_Serial(y); }
+  if(yS == nullptr) {free(yS);} else { N_VDestroyVectorArray_Serial(yS, Ns); }
   if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);}
 
   // Subset output for time, noutStates, and noutObserved.
@@ -593,6 +632,8 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
 
   return wrap(static_cast<mat>(output.cols(idx)));
 }
+
+
 
 //' Allows calling the model that calculates the time derivatives
 //' @export
