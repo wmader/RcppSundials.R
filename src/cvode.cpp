@@ -73,15 +73,52 @@ int cvode_to_Cpp_stl_jac(long int N, double t, N_Vector y, N_Vector fy, DlsMat J
 
 
 
-// CVSensRhsFn, interface
+// CVSensRhsFn, interfacing cpp sensitivity description with cvodes.
 int CVSensRhsFnIf(int Ns, double t, N_Vector y, N_Vector ydot,
                   N_Vector *yS, N_Vector *ySdot,
                   void *user_data,
                   N_Vector tmp1, N_Vector tmp2) {
-  int len = N_VGetLength_Serial(ySdot[0]);
-  for(int i = 0; i < Ns; ++i) {
-    memcpy(NV_DATA_S(ySdot[i]), NV_DATA_S(yS[i]), len*sizeof(double));
+
+  data_Cpp_stl* userData = static_cast<data_Cpp_stl*>(user_data);
+
+  // Transform N_Vector to std::vector<>
+  auto parameters = userData->parameters;
+  auto neq = userData->neq;
+  auto npar = parameters.size();
+
+  std::vector<double> states(neq);
+  auto statesData = NV_DATA_S(y);
+  for(auto i = 0; i < neq; ++i) states[i] = statesData[i];
+
+  std::vector<double> sensitivities(neq * (neq + npar));
+  auto it = sensitivities.begin();
+  for(auto i = 0; i < neq + npar; ++i) {
+    auto sensitivityData = NV_DATA_S(yS[i]);
+    for(auto j = 0; j < neq; ++j) {
+      *it = sensitivityData[j];
+      ++it;
+    }
   }
+  if(it != sensitivities.end()) {
+    ::Rf_error("Error on unpacking sensitivities.");
+  }
+
+  // Interpolate forcings
+  vector<double> forcings(userData->forcings_data.size());
+  if(userData->forcings_data.size() > 0) forcings = interpolate_list(userData->forcings_data, t);
+
+  // Calculate sensitivities
+  vector<double> sens = userData->sensitivities(t, states, sensitivities, parameters, forcings);
+
+  // Copy sensitivities into result container
+  auto itc = sens.cbegin();
+  for(int i = 0; i < neq + npar; ++i) {
+    copy(itc, itc + neq, NV_DATA_S(ySdot[i]));
+    advance(itc, neq);
+  }
+
+  // Indicate success.
+  return 0;
 }
 
 

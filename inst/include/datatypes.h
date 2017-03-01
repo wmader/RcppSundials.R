@@ -15,6 +15,10 @@ typedef std::array<std::vector<double>, 2> dae_in_Cpp_stl(const double& t, const
 typedef std::vector<double> jac_in_Cpp_stl(const double& t, const std::vector<double>& states,
             const std::vector<double>& parameters, const std::vector<double>& forcings);
 
+typedef std::vector<double> sensOde(const double& t,
+                                    const std::vector<double>& y, const std::vector<double>& yS,
+                                    const std::vector<double>& p, const std::vector<double>& f);
+
             
 // Struct that contains the data to run R models
 struct data_R {
@@ -32,6 +36,7 @@ struct data_Cpp_stl {
   const long int neq;
   ode_in_Cpp_stl* model;
   jac_in_Cpp_stl* jacobian;
+  sensOde* sensitivities;
 };
 
 // Struct that contains the data to run C++ (with stl) DAE models
