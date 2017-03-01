@@ -299,9 +299,9 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
   auto isJac = as<bool>(settings["jacobian"]);
   if(isJac) jacobian = (jac_in_Cpp_stl *) R_ExternalPtrAddr(jacobian_);
 
-  ode_in_Cpp_stl* sens = nullptr;
+  sensOde* sensitivities = nullptr;
   auto isSens = as<bool>(settings["sensitivities"]);
-  if(isSens) sens = (ode_in_Cpp_stl *) R_ExternalPtrAddr(sens_);
+  if(isSens) sensitivities = (sensOde *) R_ExternalPtrAddr(sens_);
 
 
   // Store all inputs in the data struct, prior conversion to stl and Armadillo classes
@@ -432,7 +432,8 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
   }
 
   // Give Sundials a pointer to the struct where all the user data is stored. It will be passed (untouched) to the interface as void pointer
-  data_Cpp_stl data_model{parameters, forcings_data, neq, model, jacobian};
+  data_Cpp_stl data_model{parameters, forcings_data, neq,
+                          model, jacobian, sensitivities};
   flag = CVodeSetUserData(cvode_mem, &data_model);
   if(flag < CV_SUCCESS) {
     if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
@@ -449,6 +450,7 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
       ::Rf_error("Error in the CVDlsSetDenseJacFn function");
     }
   }
+
 
   // Set maximum number of steps
   flag = CVodeSetMaxNumSteps(cvode_mem, settings["maxsteps"]);
@@ -530,10 +532,17 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
    */
   // Set up sensitivities
   const int Ns = neq + parameters.size();
+  const int nPar = parameters.size();
+  const int nSens = neq * (neq + nPar);
   N_Vector* yS = N_VCloneVectorArray_Serial(Ns, y);
+  mat outSensitivities(times.size(), nSens, arma::fill::zeros);
   if(isSens) {
-    // Copy sensitivity initials to output vector.
     vector<double> sensitivities{as<vector<double>>(initSens_)};
+
+    // Copy initial sensitivities to sensitivity output matrix.
+    for(auto i = 0; i < nSens; ++i) outSensitivities(0, i) = sensitivities[i];
+
+    // Initialize sensitivity vector yS.
     auto it = sensitivities.cbegin();
     for(int i = 0; i < Ns; ++i) {
       copy(it, it + neq, NV_DATA_S(yS[i]));
@@ -627,8 +636,19 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
       // Write states to output
       for(auto h = 0; h < neq; ++h) output(i, h + 1) = NV_Ith_S(y,h);
 
-      // Write sensitivities to output
+      // Copy initial sensitivities to sensitivity output matrix.
       flag = CVodeGetSens(cvode_mem, &tret, yS);
+      if(flag < CV_SUCCESS) {
+        throw std::runtime_error("Error on reading out sensitivities.");
+      } else {
+        arma::mat::row_iterator itOutSens = outSensitivities.begin_row(i);
+        for(auto j = 0; j < Ns; ++j) {
+          for(auto k = 0; k < neq; ++k) {
+            *itOutSens = NV_Ith_S(yS[j], k);
+            ++itOutSens;
+          }
+        }
+      }
 
     }
   } catch(std::exception &ex) {
@@ -667,7 +687,11 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
   iota(idxAux.begin() + 1 + noutStates, idxAux.end(), neq + 1);
   arma::uvec idx(idxAux);
 
-  return wrap(static_cast<mat>(output.cols(idx)));
+  if(isSens) {
+    return wrap(static_cast<mat>(arma::join_horiz(output.cols(idx), outSensitivities)));
+  } else {
+    return wrap(static_cast<mat>(output.cols(idx)));
+  }
 }
 
 
