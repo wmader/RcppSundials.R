@@ -1,20 +1,14 @@
-#include <algorithm>
 #include <string>
-#include <limits>
 #include <array>
 #include <vector>
+#include <algorithm>
 #include <RcppArmadillo.h>
 #include <cvodes/cvodes.h>           // CVODES functions and constants
 #include <nvector/nvector_serial.h>  // Serial N_Vector
 #include <cvodes/cvodes_dense.h>     // CVDense
-#include <time.h>
 #include <datatypes.h>               // RcppSundials data types and helper functions.
 #include <interfaces.h>
 
-using namespace Rcpp; 
-using namespace std;
-using arma::mat;
-using arma::vec;
 
 
 // [[Rcpp::interfaces(r, cpp)]]
@@ -184,30 +178,32 @@ using arma::vec;
 //'
 //' @export
 // [[Rcpp::export]]
-NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
-                NumericVector parameters_, NumericVector initSens_,
-                List forcings_data_,
-                List settings,
-                SEXP model_, SEXP jacobian_, SEXP sens_) {
+Rcpp::NumericMatrix wrap_cvodes(Rcpp::NumericVector times,
+                                Rcpp::NumericVector states_,
+                                Rcpp::NumericVector parameters_,
+                                Rcpp::NumericVector initSens_,
+                                Rcpp::List forcings_data_,
+                                Rcpp::List settings,
+                                SEXP model_, SEXP jacobian_, SEXP sens_) {
   // Cast SEXP to correct function pointers
   statesRHS* model = (statesRHS *) R_ExternalPtrAddr(model_);
 
   statesJacRHS* jacobian = nullptr;
-  auto isJac = as<bool>(settings["jacobian"]);
+  auto isJac = Rcpp::as<bool>(settings["jacobian"]);
   if(isJac) jacobian = (statesJacRHS *) R_ExternalPtrAddr(jacobian_);
 
   sensitivitiesRHS* sensitivities = nullptr;
-  auto isSens = as<bool>(settings["sensitivities"]);
+  auto isSens = Rcpp::as<bool>(settings["sensitivities"]);
   if(isSens) sensitivities = (sensitivitiesRHS *) R_ExternalPtrAddr(sens_);
 
 
   // Store all inputs in the data struct, prior conversion to stl and Armadillo classes
-  vector<double> parameters{as<vector<double>>(parameters_)};
-  vector<double> states{as<vector<double>>(states_)};
-  vector<mat> forcings_data(forcings_data_.size());
+  std::vector<double> parameters{Rcpp::as<std::vector<double>>(parameters_)};
+  std::vector<double> states{Rcpp::as<std::vector<double>>(states_)};
+  std::vector<arma::mat> forcings_data(forcings_data_.size());
   if(forcings_data_.size() > 0) 
     for(int i = 0; i < forcings_data_.size(); i++)
-      forcings_data[i] = as<mat>(forcings_data_[i]);
+      forcings_data[i] = Rcpp::as<arma::mat>(forcings_data_[i]);
 
 
   /*
@@ -215,9 +211,9 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
    Make a first call to the model to check that everything is ok and retrieve the number of observed variables
    *
    */
-  vector<double> forcings(forcings_data.size());
+  std::vector<double> forcings(forcings_data.size());
   if(forcings_data.size() > 0) forcings = interpolate_list(forcings_data, times[0]);
-  std::array<vector<double>, 2> first_call;
+  std::array<std::vector<double>, 2> first_call;
   try {
     first_call = model(times[0], states, parameters);
   } catch(std::exception &ex) {
@@ -239,8 +235,8 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
    *
    */
   // Get and check number of output states and observations
-  auto noutStates = as<long int>(settings["which_states"]);
-  auto noutObserved = as<long int>(settings["which_observed"]);
+  auto noutStates = Rcpp::as<long int>(settings["which_states"]);
+  auto noutObserved = Rcpp::as<long int>(settings["which_observed"]);
   // This must be checked before comparisons to *.size(), as size_type is
   // unsigned.
   if(noutStates < 0 or noutObserved < 0) {
@@ -258,7 +254,7 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
   // Copy all time points, initial states and observations into output.
   // As observations can depend on all states, all states, not only the first
   // noutStates are considered.
-  mat output(times.size(), 1 + neq + noutObserved, arma::fill::zeros);
+  arma::mat output(times.size(), 1 + neq + noutObserved, arma::fill::zeros);
   for(auto h = 0; h < times.size(); ++h) output.at(h, 0) = times[h];
   for(auto h = 0; h < neq; ++h) output.at(0, h + 1) = states[h];
   for(auto h = 0; h < noutObserved; ++h) output.at(0, h + 1 + neq) = first_call[1][h];
@@ -271,12 +267,12 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
    */
   N_Vector y = nullptr;
   y = N_VNew_Serial(neq);
-  copy(states.cbegin(), states.cend(), NV_DATA_S(y));
+  std::copy(states.cbegin(), states.cend(), NV_DATA_S(y));
 
   void *cvode_mem = nullptr;
-  if(as<std::string>(settings["method"]) == "bdf") {
+  if(Rcpp::as<std::string>(settings["method"]) == "bdf") {
     cvode_mem = CVodeCreate(CV_BDF, CV_NEWTON);     
-  } else if(as<std::string>(settings["method"]) == "adams"){
+  } else if(Rcpp::as<std::string>(settings["method"]) == "adams"){
     cvode_mem = CVodeCreate(CV_ADAMS, CV_NEWTON);     
   } else {
     if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
@@ -338,7 +334,7 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
   }
   
   // If we want to provide our own Jacobian, set the interface function to Sundials
-  if(as<bool>(settings["jacobian"])) {
+  if(Rcpp::as<bool>(settings["jacobian"])) {
     flag = CVDlsSetDenseJacFn(cvode_mem, CVDlsDenseJacFnIf);
     if(flag < CV_SUCCESS) {
       if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
@@ -413,7 +409,7 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
   }
   
   // Set stability limit detection
-  flag = CVodeSetStabLimDet(cvode_mem, as<bool>(settings["stability"]));  
+  flag = CVodeSetStabLimDet(cvode_mem, Rcpp::as<bool>(settings["stability"]));
   if(flag < CV_SUCCESS) {
     if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
     if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);} 
@@ -431,9 +427,9 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
   const int nPar = parameters.size();
   const int nSens = neq * (neq + nPar);
   N_Vector* yS = N_VCloneVectorArray_Serial(Ns, y);
-  mat outSensitivities(times.size(), nSens, arma::fill::zeros);
+  arma::mat outSensitivities(times.size(), nSens, arma::fill::zeros);
   if(isSens) {
-    vector<double> sensitivities{as<vector<double>>(initSens_)};
+    std::vector<double> sensitivities{Rcpp::as<std::vector<double>>(initSens_)};
 
     // Copy initial sensitivities to sensitivity output matrix.
     for(auto i = 0; i < nSens; ++i) outSensitivities(0, i) = sensitivities[i];
@@ -441,7 +437,7 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
     // Initialize sensitivity vector yS.
     auto it = sensitivities.cbegin();
     for(int i = 0; i < Ns; ++i) {
-      copy(it, it + neq, NV_DATA_S(yS[i]));
+      std::copy(it, it + neq, NV_DATA_S(yS[i]));
       advance(it, neq);
     }
 
@@ -474,8 +470,8 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
    *
    */
   // Preparations
-  auto checkPositive = as<bool>(settings["positive"]);
-  auto zero = as<double>(settings["minimum"]);
+  auto checkPositive = Rcpp::as<bool>(settings["positive"]);
+  auto zero = Rcpp::as<double>(settings["minimum"]);
   double t = times[0];
   double tret = 0;
 
@@ -485,7 +481,7 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
       if(checkPositive) {
         for(auto h = 0; h < neq; h++) {
          if(NV_Ith_S(y,h) < zero) {
-           Rcout << "The state variable at position " << h + 1 << " became smaller than minimum: " << NV_Ith_S(y,h) << " at time: " << times[i] << '\n';
+           Rcpp::Rcout << "The state variable at position " << h + 1 << " became smaller than minimum: " << NV_Ith_S(y,h) << " at time: " << times[i] << '\n';
            if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
            if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);}
            ::Rf_error("At least one state became smaller than minimum");
@@ -566,7 +562,7 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
       // Get the simulate state variables
       for(auto j = 0; j < neq; j++) states[j] = output(i,j + 1);
       // Call the model function to retrieve total number of outputs and initial values for derived variables
-      std::array<vector<double>, 2> model_call  = model(times[i], states, parameters);
+      std::array<std::vector<double>, 2> model_call  = model(times[i], states, parameters);
       // Derived variables already stored by the interface function
       for(auto h = 0; h < noutObserved; ++h) output(i, h + 1 + neq) = model_call[1][h];
     }
@@ -578,59 +574,14 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
   if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);}
 
   // Subset output for time, noutStates, and noutObserved.
-  vector<unsigned int> idxAux(1 + noutStates + noutObserved, 0);
+  std::vector<unsigned int> idxAux(1 + noutStates + noutObserved, 0);
   iota(idxAux.begin() + 1, idxAux.begin() + 1 + noutStates, 1);
   iota(idxAux.begin() + 1 + noutStates, idxAux.end(), neq + 1);
   arma::uvec idx(idxAux);
 
   if(isSens) {
-    return wrap(static_cast<mat>(arma::join_horiz(output.cols(idx), outSensitivities)));
+    return Rcpp::wrap(static_cast<arma::mat>(arma::join_horiz(output.cols(idx), outSensitivities)));
   } else {
-    return wrap(static_cast<mat>(output.cols(idx)));
+    return Rcpp::wrap(static_cast<arma::mat>(output.cols(idx)));
   }
 }
-
-
-
-//' Allows calling the model that calculates the time derivatives
-//' @export
-// [[Rcpp::export]]
-List cvode_calc_derivs(SEXP model_, NumericVector t, NumericVector states, 
-                          NumericVector parameters, List forcings_data_) {
-   // Wrap the pointer to the model function with the correct signature                        
-  statesRHS* model =  (statesRHS *) R_ExternalPtrAddr(model_);
-  // Interpolate the forcings
-  vector<mat> forcings_data(forcings_data_.size());
-  if(forcings_data_.size() > 0) 
-    for(int i = 0; i < forcings_data_.size(); i++)
-      forcings_data[i] = as<mat>(forcings_data_[i]);
-  vector<double> forcings(forcings_data.size());
-  if(forcings_data.size() > 0) forcings = interpolate_list(forcings_data, t[0]);
-  // Call the model
-  array<vector<double>, 2> output = model(t[0], as<vector<double>>(states),
-                                          as<vector<double>>(parameters));
-  // return the output as a list
-  return List::create(_["Derivatives"] = wrap(output[0]),
-                      _["Observed"] = wrap(output[1]));
-}
-
-//' Allows calling the function to calculate the Jacobian matrix of the model
-//' @export
-// [[Rcpp::export]]
-NumericMatrix cvode_calc_jac(SEXP jacobian_, NumericVector t, NumericVector states, 
-                          NumericVector parameters, List forcings_data_) {
-   // Wrap the pointer to the model function with the correct signature                        
-  statesJacRHS* jacobian = (statesJacRHS *) R_ExternalPtrAddr(jacobian_);
-  // Interpolate the forcings
-  vector<mat> forcings_data(forcings_data_.size());
-  if(forcings_data_.size() > 0) 
-    for(int i = 0; i < forcings_data_.size(); i++)
-      forcings_data[i] = as<mat>(forcings_data_[i]);
-  vector<double> forcings(forcings_data.size());
-  if(forcings_data.size() > 0) forcings = interpolate_list(forcings_data, t[0]);
-  // Call the model
-  arma::mat output = jacobian(t[0], as<vector<double>>(states),
-                                          as<vector<double>>(parameters));
-  // return the output as a list
-  return wrap(output);
-} 

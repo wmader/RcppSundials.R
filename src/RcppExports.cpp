@@ -10,16 +10,16 @@
 using namespace Rcpp;
 
 // wrap_cvodes
-NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_, NumericVector parameters_, NumericVector initSens_, List forcings_data_, List settings, SEXP model_, SEXP jacobian_, SEXP sens_);
+Rcpp::NumericMatrix wrap_cvodes(Rcpp::NumericVector times, Rcpp::NumericVector states_, Rcpp::NumericVector parameters_, Rcpp::NumericVector initSens_, Rcpp::List forcings_data_, Rcpp::List settings, SEXP model_, SEXP jacobian_, SEXP sens_);
 static SEXP RcppSundials_wrap_cvodes_try(SEXP timesSEXP, SEXP states_SEXP, SEXP parameters_SEXP, SEXP initSens_SEXP, SEXP forcings_data_SEXP, SEXP settingsSEXP, SEXP model_SEXP, SEXP jacobian_SEXP, SEXP sens_SEXP) {
 BEGIN_RCPP
     Rcpp::RObject __result;
-    Rcpp::traits::input_parameter< NumericVector >::type times(timesSEXP);
-    Rcpp::traits::input_parameter< NumericVector >::type states_(states_SEXP);
-    Rcpp::traits::input_parameter< NumericVector >::type parameters_(parameters_SEXP);
-    Rcpp::traits::input_parameter< NumericVector >::type initSens_(initSens_SEXP);
-    Rcpp::traits::input_parameter< List >::type forcings_data_(forcings_data_SEXP);
-    Rcpp::traits::input_parameter< List >::type settings(settingsSEXP);
+    Rcpp::traits::input_parameter< Rcpp::NumericVector >::type times(timesSEXP);
+    Rcpp::traits::input_parameter< Rcpp::NumericVector >::type states_(states_SEXP);
+    Rcpp::traits::input_parameter< Rcpp::NumericVector >::type parameters_(parameters_SEXP);
+    Rcpp::traits::input_parameter< Rcpp::NumericVector >::type initSens_(initSens_SEXP);
+    Rcpp::traits::input_parameter< Rcpp::List >::type forcings_data_(forcings_data_SEXP);
+    Rcpp::traits::input_parameter< Rcpp::List >::type settings(settingsSEXP);
     Rcpp::traits::input_parameter< SEXP >::type model_(model_SEXP);
     Rcpp::traits::input_parameter< SEXP >::type jacobian_(jacobian_SEXP);
     Rcpp::traits::input_parameter< SEXP >::type sens_(sens_SEXP);
@@ -32,74 +32,6 @@ RcppExport SEXP RcppSundials_wrap_cvodes(SEXP timesSEXP, SEXP states_SEXP, SEXP 
     {
         Rcpp::RNGScope __rngScope;
         __result = PROTECT(RcppSundials_wrap_cvodes_try(timesSEXP, states_SEXP, parameters_SEXP, initSens_SEXP, forcings_data_SEXP, settingsSEXP, model_SEXP, jacobian_SEXP, sens_SEXP));
-    }
-    Rboolean __isInterrupt = Rf_inherits(__result, "interrupted-error");
-    if (__isInterrupt) {
-        UNPROTECT(1);
-        Rf_onintr();
-    }
-    Rboolean __isError = Rf_inherits(__result, "try-error");
-    if (__isError) {
-        SEXP __msgSEXP = Rf_asChar(__result);
-        UNPROTECT(1);
-        Rf_error(CHAR(__msgSEXP));
-    }
-    UNPROTECT(1);
-    return __result;
-}
-// cvode_calc_derivs
-List cvode_calc_derivs(SEXP model_, NumericVector t, NumericVector states, NumericVector parameters, List forcings_data_);
-static SEXP RcppSundials_cvode_calc_derivs_try(SEXP model_SEXP, SEXP tSEXP, SEXP statesSEXP, SEXP parametersSEXP, SEXP forcings_data_SEXP) {
-BEGIN_RCPP
-    Rcpp::RObject __result;
-    Rcpp::traits::input_parameter< SEXP >::type model_(model_SEXP);
-    Rcpp::traits::input_parameter< NumericVector >::type t(tSEXP);
-    Rcpp::traits::input_parameter< NumericVector >::type states(statesSEXP);
-    Rcpp::traits::input_parameter< NumericVector >::type parameters(parametersSEXP);
-    Rcpp::traits::input_parameter< List >::type forcings_data_(forcings_data_SEXP);
-    __result = Rcpp::wrap(cvode_calc_derivs(model_, t, states, parameters, forcings_data_));
-    return __result;
-END_RCPP_RETURN_ERROR
-}
-RcppExport SEXP RcppSundials_cvode_calc_derivs(SEXP model_SEXP, SEXP tSEXP, SEXP statesSEXP, SEXP parametersSEXP, SEXP forcings_data_SEXP) {
-    SEXP __result;
-    {
-        Rcpp::RNGScope __rngScope;
-        __result = PROTECT(RcppSundials_cvode_calc_derivs_try(model_SEXP, tSEXP, statesSEXP, parametersSEXP, forcings_data_SEXP));
-    }
-    Rboolean __isInterrupt = Rf_inherits(__result, "interrupted-error");
-    if (__isInterrupt) {
-        UNPROTECT(1);
-        Rf_onintr();
-    }
-    Rboolean __isError = Rf_inherits(__result, "try-error");
-    if (__isError) {
-        SEXP __msgSEXP = Rf_asChar(__result);
-        UNPROTECT(1);
-        Rf_error(CHAR(__msgSEXP));
-    }
-    UNPROTECT(1);
-    return __result;
-}
-// cvode_calc_jac
-NumericMatrix cvode_calc_jac(SEXP jacobian_, NumericVector t, NumericVector states, NumericVector parameters, List forcings_data_);
-static SEXP RcppSundials_cvode_calc_jac_try(SEXP jacobian_SEXP, SEXP tSEXP, SEXP statesSEXP, SEXP parametersSEXP, SEXP forcings_data_SEXP) {
-BEGIN_RCPP
-    Rcpp::RObject __result;
-    Rcpp::traits::input_parameter< SEXP >::type jacobian_(jacobian_SEXP);
-    Rcpp::traits::input_parameter< NumericVector >::type t(tSEXP);
-    Rcpp::traits::input_parameter< NumericVector >::type states(statesSEXP);
-    Rcpp::traits::input_parameter< NumericVector >::type parameters(parametersSEXP);
-    Rcpp::traits::input_parameter< List >::type forcings_data_(forcings_data_SEXP);
-    __result = Rcpp::wrap(cvode_calc_jac(jacobian_, t, states, parameters, forcings_data_));
-    return __result;
-END_RCPP_RETURN_ERROR
-}
-RcppExport SEXP RcppSundials_cvode_calc_jac(SEXP jacobian_SEXP, SEXP tSEXP, SEXP statesSEXP, SEXP parametersSEXP, SEXP forcings_data_SEXP) {
-    SEXP __result;
-    {
-        Rcpp::RNGScope __rngScope;
-        __result = PROTECT(RcppSundials_cvode_calc_jac_try(jacobian_SEXP, tSEXP, statesSEXP, parametersSEXP, forcings_data_SEXP));
     }
     Rboolean __isInterrupt = Rf_inherits(__result, "interrupted-error");
     if (__isInterrupt) {
@@ -169,9 +101,7 @@ END_RCPP
 static int RcppSundials_RcppExport_validate(const char* sig) { 
     static std::set<std::string> signatures;
     if (signatures.empty()) {
-        signatures.insert("NumericMatrix(*wrap_cvodes)(NumericVector,NumericVector,NumericVector,NumericVector,List,List,SEXP,SEXP,SEXP)");
-        signatures.insert("List(*cvode_calc_derivs)(SEXP,NumericVector,NumericVector,NumericVector,List)");
-        signatures.insert("NumericMatrix(*cvode_calc_jac)(SEXP,NumericVector,NumericVector,NumericVector,List)");
+        signatures.insert("Rcpp::NumericMatrix(*wrap_cvodes)(Rcpp::NumericVector,Rcpp::NumericVector,Rcpp::NumericVector,Rcpp::NumericVector,Rcpp::List,Rcpp::List,SEXP,SEXP,SEXP)");
     }
     return signatures.find(sig) != signatures.end();
 }
@@ -179,8 +109,6 @@ static int RcppSundials_RcppExport_validate(const char* sig) {
 // registerCCallable (register entry points for exported C++ functions)
 RcppExport SEXP RcppSundials_RcppExport_registerCCallable() { 
     R_RegisterCCallable("RcppSundials", "RcppSundials_wrap_cvodes", (DL_FUNC)RcppSundials_wrap_cvodes_try);
-    R_RegisterCCallable("RcppSundials", "RcppSundials_cvode_calc_derivs", (DL_FUNC)RcppSundials_cvode_calc_derivs_try);
-    R_RegisterCCallable("RcppSundials", "RcppSundials_cvode_calc_jac", (DL_FUNC)RcppSundials_cvode_calc_jac_try);
     R_RegisterCCallable("RcppSundials", "RcppSundials_RcppExport_validate", (DL_FUNC)RcppSundials_RcppExport_validate);
     return R_NilValue;
 }

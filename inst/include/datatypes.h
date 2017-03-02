@@ -1,3 +1,24 @@
+/*
+ * Typedefs of function pointers to equations formulated in C++.
+ * Struct used to pass around information needed to evaluate these functions.
+ *
+ * Typedefs
+ * - statesRHS
+ *   Right hand side of the states ode, aka the model.
+ *
+ * - statesJacRHS
+ *   Right hand side to evaluate the Jacobian of the model.
+ *
+ * - sensitivitiesRHS
+ *   Right hand side of the sensitivities: model derivatives wrt parameteres.
+ *
+ *
+ * Structs
+ * - UserDataIVP
+ *   Struct passed to cvodes containing everything for solving an IVP.
+ *
+ */
+
 #ifndef __RcppSundialsDataType_h__
 #define __RcppSundialsDataType_h__
 
