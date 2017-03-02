@@ -1,20 +1,21 @@
 #ifndef __RcppSundialsDataType_h__
-
 #define __RcppSundialsDataType_h__
-#define ARMA_DONT_USE_CXX11
+
 #include <vector>
 #include <RcppArmadillo.h>
 #include <array>
 
-typedef std::array<std::vector<double>, 2> ode_in_Cpp_stl(const double& t, const std::vector<double>& states,
-            const std::vector<double>& parameters, const std::vector<double>& forcings);
+typedef std::array<std::vector<double>, 2> statesRHS(const double& t, const std::vector<double>& states,
+            const std::vector<double>& parameters);
+
 typedef std::array<std::vector<double>, 2> dae_in_Cpp_stl(const double& t, const std::vector<double>& states,
             const std::vector<double>& derivatives, const std::vector<double>& parameters,
             const std::vector<double>& forcings);
-typedef std::vector<double> jac_in_Cpp_stl(const double& t, const std::vector<double>& states,
+
+typedef std::vector<double> statesJacRHS(const double& t, const std::vector<double>& states,
             const std::vector<double>& parameters);
 
-typedef std::vector<double> sensOde(const double& t,
+typedef std::vector<double> sensitivitiesRHS(const double& t,
                                     const std::vector<double>& y, const std::vector<double>& yS,
                                     const std::vector<double>& p);
 
@@ -28,14 +29,14 @@ struct data_R {
   Rcpp::Function jacobian;
 };
 
-// Struct that contains the data to run C++ (with stl) models
-struct data_Cpp_stl {
+// Struct containing the data to solve IVP of models described in C++.
+struct UserDataIVP {
   std::vector<double> parameters;
   const std::vector<arma::mat> forcings_data;
   const long int neq;
-  ode_in_Cpp_stl* model;
-  jac_in_Cpp_stl* jacobian;
-  sensOde* sensitivities;
+  statesRHS* states;
+  statesJacRHS* jacobian;
+  sensitivitiesRHS* sensitivities;
 };
 
 // Struct that contains the data to run C++ (with stl) DAE models
@@ -44,7 +45,7 @@ struct data_ida_Cpp_stl {
   const std::vector<arma::mat> forcings_data;
   const int neq;
   dae_in_Cpp_stl* model;
-  jac_in_Cpp_stl* jacobian;
+  statesJacRHS* jacobian;
 };
 
 

@@ -49,9 +49,9 @@ NumericMatrix ida_Cpp_stl(NumericVector times, NumericVector states_,
   // Wrap the pointer to the model function with the correct signature                        
   dae_in_Cpp_stl* model =  (dae_in_Cpp_stl *) R_ExternalPtrAddr(model_);
   // Wrap the pointer to the jacobian function with the correct signature                        
-  jac_in_Cpp_stl* jacobian =  nullptr;
+  statesJacRHS* jacobian =  nullptr;
   if(as<int>(settings["jacobian"]) == 1) 
-      jacobian = (jac_in_Cpp_stl *) R_ExternalPtrAddr(jacobian_);
+      jacobian = (statesJacRHS *) R_ExternalPtrAddr(jacobian_);
   // Store all inputs in the data struct, prior conversion to stl and Armadillo classes
   int neq = states_.size();
   vector<double> parameters{as<vector<double>>(parameters_)};
@@ -379,7 +379,7 @@ List ida_calc_res(SEXP model_, NumericVector t, NumericVector states,
 NumericMatrix ida_calc_jac(SEXP jacobian_, NumericVector t, NumericVector states, 
                           NumericVector parameters, List forcings_data_) {
    // Wrap the pointer to the model function with the correct signature                        
-  jac_in_Cpp_stl* jacobian = (jac_in_Cpp_stl *) R_ExternalPtrAddr(jacobian_);
+  statesJacRHS* jacobian = (statesJacRHS *) R_ExternalPtrAddr(jacobian_);
   // Interpolate the forcings
   vector<mat> forcings_data(forcings_data_.size());
   if(forcings_data_.size() > 0) 

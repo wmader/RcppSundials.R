@@ -3,7 +3,7 @@
  * equations which are formulated in C++.
  *
  * Interface functions:
- * - cvode_to_Cpp_stl
+ * - CVRhsFnIf
  *   Interface to the odes of states.
  *
  * - CVDlsDenseJacFnIf
@@ -25,25 +25,48 @@
 #include <cvodes/cvodes.h>
 #include <cvodes/cvodes_dense.h>
 #include <nvector/nvector_serial.h>
+#include <datatypes.h>
 
 
-// Interface between cvode integrator and the model function written in Cpp
-int cvode_to_Cpp_stl(double t, N_Vector y, N_Vector ydot, void* inputs) {
-  // Cast the void pointer back to the correct data structure
-  data_Cpp_stl* data = static_cast<data_Cpp_stl*>(inputs);
-  // Interpolate the forcings
-  std::vector<double> forcings(data->forcings_data.size());
-  if(data->forcings_data.size() > 0) forcings = interpolate_list(data->forcings_data, t);
-  // Extract the states from the NV_Ith_S container
-  std::vector<double> states(data->neq);
-  for(auto i = 0; i < data->neq ; i++) states[i] = NV_Ith_S(y,i);
-  // Run the model
-  std::array<std::vector<double>, 2> output = data->model(t, states, data->parameters, forcings);
-  // Return the states to the NV_Ith_S
-  std::vector<double> derivatives = output[0];
-  for(auto i = 0; i < data->neq; i++)  NV_Ith_S(ydot,i) = derivatives[i];
+/** Interfacing C++ state description with cvodes.
+ *
+ * This function's signature matches cvodes requested signature for the
+ * function which computes the ODE right-hand side for a given value of the
+ * independent variable t and state vector y. This function is documented in
+ * cvs_guide.pdf under the keyword CVRhsFn.
+ *
+ * Internally, this function calls userData->states which is the user-supplied
+ * function computing the ODE right-hand side formulated in C++.
+ *
+ * Parameters are named according to cvs_guide.pdf, documentation is copied.
+ * \param t The current value of the independent variable.
+ * \param y The current value of the dependent variable vector, y(t).
+ * \param ydot The output vector f(t,y).
+ * \param user_data A pointer to user data, the same as the user data parameter passed to CVodeSetUserData.
+ */
+int CVRhsFnIf(double t, N_Vector y, N_Vector ydot, void* user_data) {
+  UserDataIVP* userData = static_cast<UserDataIVP*>(user_data);
+
+  // Transform N_Vector to std::vector
+  const auto neq = userData->neq;
+
+  // Copy current states
+  std::vector<double> statesCur(neq);
+  const auto statesData = NV_DATA_S(y);
+  std::copy(statesData, statesData + neq, statesCur.begin());
+
+  // Calculate states
+  // First dimension: states
+  // Second dimension: observables, functions of states
+  std::array<std::vector<double>, 2> states = userData->states(t, statesCur, userData->parameters);
+
+  // Copy states into result container
+  std::copy(states[0].cbegin(), states[0].cend(), NV_DATA_S(ydot));
+
+  // Indicate success
   return 0;
 }
+
 
 
 /** Interfacing C++ jacobian description with cvodes.
@@ -57,20 +80,22 @@ int cvode_to_Cpp_stl(double t, N_Vector y, N_Vector ydot, void* inputs) {
  * in C++.
  *
  * Parameters are named according to cvs_guide.pdf, documentation is copied.
- * @param N[in] Problem size, number of equations.
- * @param t[in] The current value of the independent variable.
- * @param y[in] The current value of the dependent variable vector, namely the predicted values of y(t).
- * @param fy[in] The current value of the vector f(t,y).
- * @param Jac[out] The output dense Jacobian matrix (of type DlsMat).
- * @param user_data[in] A pointer to user data, the same as the user data parameter passed to CVodeSetUserData.
- * @param tmp1, tmp2,tmp3[in] N Vectors of length N which can be used as temporary storage.
+ * \param N Problem size, number of equations.
+ * \param t The current value of the independent variable.
+ * \param y The current value of the dependent variable vector, namely the predicted values of y(t).
+ * \param fy The current value of the vector f(t,y).
+ * \param Jac The output dense Jacobian matrix (of type DlsMat).
+ * \param user_data A pointer to user data, the same as the user data parameter passed to CVodeSetUserData.
+ * \param tmp1 N Vectors of length N which can be used as temporary storage.
+ * \param tmp2 N Vectors of length N which can be used as temporary storage.
+ * \param tmp3 N Vectors of length N which can be used as temporary storage.
  */
 int CVDlsDenseJacFnIf(long int N, double t,
                       N_Vector y, N_Vector fy,
                       DlsMat Jac,
                       void *user_data,
                       N_Vector tmp1, N_Vector tmp2, N_Vector tmp3) {
-  data_Cpp_stl* userData = static_cast<data_Cpp_stl*>(user_data);
+  UserDataIVP* userData = static_cast<UserDataIVP*>(user_data);
 
   // Transform N_Vector to std::vector
   const auto neq = userData->neq;
@@ -82,9 +107,6 @@ int CVDlsDenseJacFnIf(long int N, double t,
 
   // Calculate Jacobian
   auto jacobian = userData->jacobian(t, states, userData->parameters);
-  if(jacobian.size() != neq * neq) {
-    ::Rf_error("Wrong size of Jacobian matrix.");
-  }
 
   // Copy jacobian into result container
   auto itcJac = jacobian.cbegin();
@@ -111,21 +133,22 @@ int CVDlsDenseJacFnIf(long int N, double t,
  * sensitivities formulated in C++.
  *
  * Parameters are named according to cvs_guide.pdf, documentation is copied.
- * @param Ns[in] Number of parameters for which sensitivities are computed.
- * @param t[in] The current value of the independent variable.
- * @param y[in] The current value of the state vector, y(t).
- * @param ydot[in] The current value of the right-hand side of the state equations.
- * @param yS[in] The current values of the sensitivity vectors.
- * @param ySdot[out] The output of CVSensRhsFn. On exit it must contain the sensitivity right-hand side vectors.
- * @param user_data[in] A pointer to user data, the same as the user data parameter passed to CVodeSetUserData.
- * @param tmp1, tmp2[in] N Vectors of length N which can be used as temporary storage.
+ * \param Ns Number of parameters for which sensitivities are computed.
+ * \param t The current value of the independent variable.
+ * \param y The current value of the state vector, y(t).
+ * \param ydot The current value of the right-hand side of the state equations.
+ * \param yS The current values of the sensitivity vectors.
+ * \param ySdot The output of CVSensRhsFn. On exit it must contain the sensitivity right-hand side vectors.
+ * \param user_data A pointer to user data, the same as the user data parameter passed to CVodeSetUserData.
+ * \param tmp1 N Vectors of length N which can be used as temporary storage.
+ * \param tmp2 N Vectors of length N which can be used as temporary storage.
  */
 int CVSensRhsFnIf(int Ns, double t,
                   N_Vector y, N_Vector ydot,
                   N_Vector *yS, N_Vector *ySdot,
                   void *user_data,
                   N_Vector tmp1, N_Vector tmp2) {
-  data_Cpp_stl* userData = static_cast<data_Cpp_stl*>(user_data);
+  UserDataIVP* userData = static_cast<UserDataIVP*>(user_data);
 
   // Transform N_Vector to std::vector
   const auto& parameters = userData->parameters;

@@ -190,15 +190,15 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
                 List settings,
                 SEXP model_, SEXP jacobian_, SEXP sens_) {
   // Cast SEXP to correct function pointers
-  ode_in_Cpp_stl* model = (ode_in_Cpp_stl *) R_ExternalPtrAddr(model_);
+  statesRHS* model = (statesRHS *) R_ExternalPtrAddr(model_);
 
-  jac_in_Cpp_stl* jacobian = nullptr;
+  statesJacRHS* jacobian = nullptr;
   auto isJac = as<bool>(settings["jacobian"]);
-  if(isJac) jacobian = (jac_in_Cpp_stl *) R_ExternalPtrAddr(jacobian_);
+  if(isJac) jacobian = (statesJacRHS *) R_ExternalPtrAddr(jacobian_);
 
-  sensOde* sensitivities = nullptr;
+  sensitivitiesRHS* sensitivities = nullptr;
   auto isSens = as<bool>(settings["sensitivities"]);
-  if(isSens) sensitivities = (sensOde *) R_ExternalPtrAddr(sens_);
+  if(isSens) sensitivities = (sensitivitiesRHS *) R_ExternalPtrAddr(sens_);
 
 
   // Store all inputs in the data struct, prior conversion to stl and Armadillo classes
@@ -219,7 +219,7 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
   if(forcings_data.size() > 0) forcings = interpolate_list(forcings_data, times[0]);
   std::array<vector<double>, 2> first_call;
   try {
-    first_call = model(times[0], states, parameters, forcings);
+    first_call = model(times[0], states, parameters);
   } catch(std::exception &ex) {
     forward_exception_to_r(ex);
   } catch(...) {
@@ -294,7 +294,7 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
   }
   
   // Initialize the Sundials solver. Here we pass initial N_Vector, the interface function and the initial time
-  flag = CVodeInit(cvode_mem, cvode_to_Cpp_stl, times[0], y);
+  flag = CVodeInit(cvode_mem, CVRhsFnIf, times[0], y);
   if(flag < CV_SUCCESS) {
     if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
     if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);}     
@@ -329,8 +329,8 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
   }
 
   // Give Sundials a pointer to the struct where all the user data is stored. It will be passed (untouched) to the interface as void pointer
-  data_Cpp_stl data_model{parameters, forcings_data, neq,
-                          model, jacobian, sensitivities};
+  UserDataIVP data_model{parameters, forcings_data, neq,
+                         model, jacobian, sensitivities};
   flag = CVodeSetUserData(cvode_mem, &data_model);
   if(flag < CV_SUCCESS) {
     if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
@@ -567,7 +567,7 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
       // Get the simulate state variables
       for(auto j = 0; j < neq; j++) states[j] = output(i,j + 1);
       // Call the model function to retrieve total number of outputs and initial values for derived variables
-      std::array<vector<double>, 2> model_call  = model(times[i], states, parameters, forcings);
+      std::array<vector<double>, 2> model_call  = model(times[i], states, parameters);
       // Derived variables already stored by the interface function
       for(auto h = 0; h < noutObserved; ++h) output(i, h + 1 + neq) = model_call[1][h];
     }
@@ -599,7 +599,7 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
 List cvode_calc_derivs(SEXP model_, NumericVector t, NumericVector states, 
                           NumericVector parameters, List forcings_data_) {
    // Wrap the pointer to the model function with the correct signature                        
-  ode_in_Cpp_stl* model =  (ode_in_Cpp_stl *) R_ExternalPtrAddr(model_); 
+  statesRHS* model =  (statesRHS *) R_ExternalPtrAddr(model_);
   // Interpolate the forcings
   vector<mat> forcings_data(forcings_data_.size());
   if(forcings_data_.size() > 0) 
@@ -609,8 +609,7 @@ List cvode_calc_derivs(SEXP model_, NumericVector t, NumericVector states,
   if(forcings_data.size() > 0) forcings = interpolate_list(forcings_data, t[0]);
   // Call the model
   array<vector<double>, 2> output = model(t[0], as<vector<double>>(states),
-                                          as<vector<double>>(parameters),
-                                          forcings);
+                                          as<vector<double>>(parameters));
   // return the output as a list
   return List::create(_["Derivatives"] = wrap(output[0]),
                       _["Observed"] = wrap(output[1]));
@@ -622,7 +621,7 @@ List cvode_calc_derivs(SEXP model_, NumericVector t, NumericVector states,
 NumericMatrix cvode_calc_jac(SEXP jacobian_, NumericVector t, NumericVector states, 
                           NumericVector parameters, List forcings_data_) {
    // Wrap the pointer to the model function with the correct signature                        
-  jac_in_Cpp_stl* jacobian = (jac_in_Cpp_stl *) R_ExternalPtrAddr(jacobian_);
+  statesJacRHS* jacobian = (statesJacRHS *) R_ExternalPtrAddr(jacobian_);
   // Interpolate the forcings
   vector<mat> forcings_data(forcings_data_.size());
   if(forcings_data_.size() > 0) 
