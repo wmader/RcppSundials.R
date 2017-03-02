@@ -1,19 +1,21 @@
 Package: RcppSundials
-Version: 1.0
-Date: 2016-10-31
+Type: Package
 Title: Wrapper around Sundials numerical library using Rcpp and RcppArmadillo
+Version: 1.0
+Date: 2017-03-01
 Author@R: c(person("Alejandro", "Morales", "morales.s.alejandro@gmail.com",
             role = c("aut", "cre")),
             person("Wolfgang", "Mader", "wolfgang.mader@fdm.uni-freiburg.de",
             role = c("ctb")))
+Author: Alejandro Morales [out, cre], Wolfang Mader [ctb]
+Maintainer: Wolfgang Mader <wolfgang.mader@fdm.uni-freiburg.de>
 Description: Sundials is a SUite of Nonlinear and DIfferential/ALgebraic
     Equation Solvers. This packages makes the solver cvodes and ida available to
     R. cvodes is a solver for stiff and nonstiff systems of ordinary linear
     equations, ida solves differential-algebraic equation systems.
-Type: Package
 License: MIT
-Imports:
-    Rcpp (>= 0.11.3)
+NeedsCompilation: yes
+Imports: Rcpp (>= 0.11.3)
 LinkingTo: Rcpp, RcppArmadillo
 URL: https://github.com/AleMorales/RcppSundials.R
 RoxygenNote: 5.0.1
