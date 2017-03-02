@@ -2,24 +2,38 @@
 #define __RcppSundialsDataType_h__
 
 #include <vector>
-#include <RcppArmadillo.h>
 #include <array>
+#include <RcppArmadillo.h>
 
-typedef std::array<std::vector<double>, 2> statesRHS(const double& t, const std::vector<double>& states,
-            const std::vector<double>& parameters);
+typedef std::array<std::vector<double>, 2> statesRHS(const double& t,
+                                                     const std::vector<double>& states,
+                                                     const std::vector<double>& parameters);
 
-typedef std::array<std::vector<double>, 2> dae_in_Cpp_stl(const double& t, const std::vector<double>& states,
-            const std::vector<double>& derivatives, const std::vector<double>& parameters,
-            const std::vector<double>& forcings);
-
-typedef std::vector<double> statesJacRHS(const double& t, const std::vector<double>& states,
-            const std::vector<double>& parameters);
+typedef std::vector<double> statesJacRHS(const double& t,
+                                         const std::vector<double>& states,
+                                         const std::vector<double>& parameters);
 
 typedef std::vector<double> sensitivitiesRHS(const double& t,
-                                    const std::vector<double>& y, const std::vector<double>& yS,
-                                    const std::vector<double>& p);
+                                             const std::vector<double>& y,
+                                             const std::vector<double>& yS,
+                                             const std::vector<double>& p);
 
-            
+typedef std::array<std::vector<double>, 2> dae_in_Cpp_stl(const double& t, const std::vector<double>& states,
+                                                          const std::vector<double>& derivatives, const std::vector<double>& parameters,
+                                                          const std::vector<double>& forcings);
+
+
+// Struct containing the data to solve IVP of models described in C++.
+struct UserDataIVP {
+  const long int neq;
+  std::vector<double> parameters;
+  statesRHS* states;
+  statesJacRHS* jacobian;
+  sensitivitiesRHS* sensitivities;
+};
+
+
+
 // Struct that contains the data to run R models
 struct data_R {
   Rcpp::NumericVector parameters;
@@ -29,15 +43,7 @@ struct data_R {
   Rcpp::Function jacobian;
 };
 
-// Struct containing the data to solve IVP of models described in C++.
-struct UserDataIVP {
-  std::vector<double> parameters;
-  const std::vector<arma::mat> forcings_data;
-  const long int neq;
-  statesRHS* states;
-  statesJacRHS* jacobian;
-  sensitivitiesRHS* sensitivities;
-};
+
 
 // Struct that contains the data to run C++ (with stl) DAE models
 struct data_ida_Cpp_stl {
@@ -47,6 +53,7 @@ struct data_ida_Cpp_stl {
   dae_in_Cpp_stl* model;
   statesJacRHS* jacobian;
 };
+
 
 
 /*

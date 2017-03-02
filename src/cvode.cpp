@@ -329,8 +329,7 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
   }
 
   // Give Sundials a pointer to the struct where all the user data is stored. It will be passed (untouched) to the interface as void pointer
-  UserDataIVP data_model{parameters, forcings_data, neq,
-                         model, jacobian, sensitivities};
+  UserDataIVP data_model{neq, parameters, model, jacobian, sensitivities};
   flag = CVodeSetUserData(cvode_mem, &data_model);
   if(flag < CV_SUCCESS) {
     if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
