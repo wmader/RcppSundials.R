@@ -1,126 +1,26 @@
-#define ARMA_DONT_USE_CXX11          // Forcefully prevent Armadillo from using C++11 features.
+// #define ARMA_DONT_USE_CXX11          // Forcefully prevent Armadillo from using C++11 features.
                                      // Must be specified before including RcppArmadillo.h.
 #include <RcppArmadillo.h>
 #include <Rcpp.h>
 #include <cvodes/cvodes.h>           // CVODES functions and constants
 #include <nvector/nvector_serial.h>  // Serial N_Vector
 #include <cvodes/cvodes_dense.h>     // CVDense
-#include <datatypes.h>               // RcppSundials data types and helper functions.
 #include <algorithm>
 #include <string> 
 #include <limits> 
 #include <array>
 #include <vector>
 #include <time.h>
+#include <datatypes.h>               // RcppSundials data types and helper functions.
+#include <interfaces.h>
 
 using namespace Rcpp; 
 using namespace std;
 using arma::mat;
 using arma::vec;
 
+
 // [[Rcpp::interfaces(r, cpp)]]
-
-/*
- *
- Functions when the model is written in C++ using the standard library and the Armadillo library
- *
- */
-
-// Interface between cvode integrator and the model function written in Cpp
-int cvode_to_Cpp_stl(double t, N_Vector y, N_Vector ydot, void* inputs) {
-  // Cast the void pointer back to the correct data structure
-  data_Cpp_stl* data = static_cast<data_Cpp_stl*>(inputs);
-  // Interpolate the forcings
-  vector<double> forcings(data->forcings_data.size());
-  if(data->forcings_data.size() > 0) forcings = interpolate_list(data->forcings_data, t);
-  // Extract the states from the NV_Ith_S container
-  vector<double> states(data->neq);
-  for(auto i = 0; i < data->neq ; i++) states[i] = NV_Ith_S(y,i);
-  // Run the model
-  array<vector<double>, 2> output = data->model(t, states, data->parameters, forcings); 
-  // Return the states to the NV_Ith_S
-  vector<double> derivatives = output[0];
-  for(auto i = 0; i < data->neq; i++)  NV_Ith_S(ydot,i) = derivatives[i];
-  return 0; 
-}
-
-// Interface cvode with std container Jacobian function.
-int cvode_to_Cpp_stl_jac(long int N, double t, N_Vector y, N_Vector fy, DlsMat Jac, 
-                   void *inputs, N_Vector tmp1, N_Vector tmp2, N_Vector tmp3) {
-  // Cast the void pointer back to the correct data structure
-  data_Cpp_stl* data = static_cast<data_Cpp_stl*>(inputs);
-  // Interpolate the forcings
-  vector<double> forcings(data->forcings_data.size());
-  if(data->forcings_data.size() > 0) forcings = interpolate_list(data->forcings_data, t);
-  // Extract the states from the NV_Ith_S container
-  auto neq = data->neq;
-  vector<double> states(neq);
-  for(auto i = 0; i < neq ; i++) states[i] = NV_Ith_S(y,i);
-  // Get the Jacobian
-  auto output = data->jacobian(t, states, data->parameters, forcings);
-  // Return the DlsMat
-  if(output.size() not_eq neq * neq) {
-    ::Rf_error("Wrong size of Jacobian matrix.");
-  }
-  auto it = output.cbegin();
-  for(int i = 0; i < neq; ++i) {
-    copy(it, it + neq, DENSE_COL(Jac, i));
-    advance(it, neq);
-  }
-
-  return 0;
-}
-
-
-
-// CVSensRhsFn, interfacing cpp sensitivity description with cvodes.
-int CVSensRhsFnIf(int Ns, double t, N_Vector y, N_Vector ydot,
-                  N_Vector *yS, N_Vector *ySdot,
-                  void *user_data,
-                  N_Vector tmp1, N_Vector tmp2) {
-
-  data_Cpp_stl* userData = static_cast<data_Cpp_stl*>(user_data);
-
-  // Transform N_Vector to std::vector<>
-  auto parameters = userData->parameters;
-  auto neq = userData->neq;
-  auto npar = parameters.size();
-
-  std::vector<double> states(neq);
-  auto statesData = NV_DATA_S(y);
-  for(auto i = 0; i < neq; ++i) states[i] = statesData[i];
-
-  std::vector<double> sensitivities(neq * (neq + npar));
-  auto it = sensitivities.begin();
-  for(auto i = 0; i < neq + npar; ++i) {
-    auto sensitivityData = NV_DATA_S(yS[i]);
-    for(auto j = 0; j < neq; ++j) {
-      *it = sensitivityData[j];
-      ++it;
-    }
-  }
-  if(it != sensitivities.end()) {
-    ::Rf_error("Error on unpacking sensitivities.");
-  }
-
-  // Interpolate forcings
-  vector<double> forcings(userData->forcings_data.size());
-  if(userData->forcings_data.size() > 0) forcings = interpolate_list(userData->forcings_data, t);
-
-  // Calculate sensitivities
-  vector<double> sens = userData->sensitivities(t, states, sensitivities, parameters, forcings);
-
-  // Copy sensitivities into result container
-  auto itc = sens.cbegin();
-  for(int i = 0; i < neq + npar; ++i) {
-    copy(itc, itc + neq, NV_DATA_S(ySdot[i]));
-    advance(itc, neq);
-  }
-
-  // Indicate success.
-  return 0;
-}
-
 
 
 //' Solve an inital value problem with cvodes.

@@ -17,7 +17,7 @@ typedef std::vector<double> jac_in_Cpp_stl(const double& t, const std::vector<do
 
 typedef std::vector<double> sensOde(const double& t,
                                     const std::vector<double>& y, const std::vector<double>& yS,
-                                    const std::vector<double>& p, const std::vector<double>& f);
+                                    const std::vector<double>& p);
 
             
 // Struct that contains the data to run R models
