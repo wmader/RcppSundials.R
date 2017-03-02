@@ -2,7 +2,6 @@
 
 #define __RcppSundialsDataType_h__
 #define ARMA_DONT_USE_CXX11
-#include <Rcpp.h>
 #include <vector>
 #include <RcppArmadillo.h>
 #include <array>
@@ -13,7 +12,7 @@ typedef std::array<std::vector<double>, 2> dae_in_Cpp_stl(const double& t, const
             const std::vector<double>& derivatives, const std::vector<double>& parameters,
             const std::vector<double>& forcings);
 typedef std::vector<double> jac_in_Cpp_stl(const double& t, const std::vector<double>& states,
-            const std::vector<double>& parameters, const std::vector<double>& forcings);
+            const std::vector<double>& parameters);
 
 typedef std::vector<double> sensOde(const double& t,
                                     const std::vector<double>& y, const std::vector<double>& yS,

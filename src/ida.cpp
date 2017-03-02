@@ -389,8 +389,7 @@ NumericMatrix ida_calc_jac(SEXP jacobian_, NumericVector t, NumericVector states
   if(forcings_data.size() > 0) forcings = interpolate_list(forcings_data, t[0]);
   // Call the model
   arma::mat output = jacobian(t[0], as<vector<double>>(states),
-                              as<vector<double>>(parameters),
-                              forcings);
+                              as<vector<double>>(parameters));
   // return the output as a list
   return wrap(output);
 } 

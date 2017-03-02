@@ -6,7 +6,7 @@
  * - cvode_to_Cpp_stl
  *   Interface to the odes of states.
  *
- * - cvode_to_Cpp_stl_jac
+ * - CVDlsDenseJacFnIf
  *   Interface to the jacobian of states.
  *
  * - CVSensRhsFnIf
@@ -17,21 +17,14 @@
 #ifndef _RCPPSUNDIALSINTERFACES_H
 #define _RCPPSUNDIALSINTERFACES_H
 
-// #define ARMA_DONT_USE_CXX11
-#include <RcppArmadillo.h>
-#include <Rcpp.h>
-#include <cvodes/cvodes.h>
-#include <cvodes/cvodes_dense.h>
-#include <nvector/nvector_serial.h>
 #include <vector>
 #include <array>
 #include <algorithm>
 #include <iterator>
-
-
-using namespace Rcpp;
-using arma::mat;
-using arma::vec;
+#include <RcppArmadillo.h>
+#include <cvodes/cvodes.h>
+#include <cvodes/cvodes_dense.h>
+#include <nvector/nvector_serial.h>
 
 
 // Interface between cvode integrator and the model function written in Cpp
@@ -52,40 +45,65 @@ int cvode_to_Cpp_stl(double t, N_Vector y, N_Vector ydot, void* inputs) {
   return 0;
 }
 
-// Interface cvode with std container Jacobian function.
-int cvode_to_Cpp_stl_jac(long int N, double t, N_Vector y, N_Vector fy, DlsMat Jac,
-                   void *inputs, N_Vector tmp1, N_Vector tmp2, N_Vector tmp3) {
-  // Cast the void pointer back to the correct data structure
-  data_Cpp_stl* data = static_cast<data_Cpp_stl*>(inputs);
-  // Interpolate the forcings
-  std::vector<double> forcings(data->forcings_data.size());
-  if(data->forcings_data.size() > 0) forcings = interpolate_list(data->forcings_data, t);
-  // Extract the states from the NV_Ith_S container
-  auto neq = data->neq;
+
+/** Interfacing C++ jacobian description with cvodes.
+ *
+ * This function's signature matches cvodes requested signature for the
+ * function which computes the dense Jacobian for all states. This function is
+ * documented in cvs_guide.pdf under the keyword CVDlsDenseJacFn.
+ *
+ * Internally, this function calls userData->jacobian which is the
+ * user-supplied function computing the dense Jacobian for all states formulated
+ * in C++.
+ *
+ * Parameters are named according to cvs_guide.pdf, documentation is copied.
+ * @param N[in] Problem size, number of equations.
+ * @param t[in] The current value of the independent variable.
+ * @param y[in] The current value of the dependent variable vector, namely the predicted values of y(t).
+ * @param fy[in] The current value of the vector f(t,y).
+ * @param Jac[out] The output dense Jacobian matrix (of type DlsMat).
+ * @param user_data[in] A pointer to user data, the same as the user data parameter passed to CVodeSetUserData.
+ * @param tmp1, tmp2,tmp3[in] N Vectors of length N which can be used as temporary storage.
+ */
+int CVDlsDenseJacFnIf(long int N, double t,
+                      N_Vector y, N_Vector fy,
+                      DlsMat Jac,
+                      void *user_data,
+                      N_Vector tmp1, N_Vector tmp2, N_Vector tmp3) {
+  data_Cpp_stl* userData = static_cast<data_Cpp_stl*>(user_data);
+
+  // Transform N_Vector to std::vector
+  const auto neq = userData->neq;
+
+  // Copy current states
   std::vector<double> states(neq);
-  for(auto i = 0; i < neq ; i++) states[i] = NV_Ith_S(y,i);
-  // Get the Jacobian
-  auto output = data->jacobian(t, states, data->parameters, forcings);
-  // Return the DlsMat
-  if(output.size() not_eq neq * neq) {
+  const auto statesData = NV_DATA_S(y);
+  std::copy(statesData, statesData + neq, states.begin());
+
+  // Calculate Jacobian
+  auto jacobian = userData->jacobian(t, states, userData->parameters);
+  if(jacobian.size() != neq * neq) {
     ::Rf_error("Wrong size of Jacobian matrix.");
   }
-  auto it = output.cbegin();
+
+  // Copy jacobian into result container
+  auto itcJac = jacobian.cbegin();
   for(int i = 0; i < neq; ++i) {
-    std::copy(it, it + neq, DENSE_COL(Jac, i));
-    std::advance(it, neq);
+    std::copy(itcJac, itcJac + neq, DENSE_COL(Jac, i));
+    std::advance(itcJac, neq);
   }
 
+  // Indicate success.
   return 0;
 }
 
 
 
-/** Interfacing cpp sensitivity description with cvodes.
+/** Interfacing C++ sensitivity description with cvodes.
  *
  * This function's signature matches cvodes requested signature for the
  * function which computes the sensitivity right-hand side for all
- * sensitivities. This function it documented in cvs_guide.pdf under the
+ * sensitivities. This function is documented in cvs_guide.pdf under the
  * keyword CVSensRhsFn.
  *
  * Internally, this function calls userData->sensitivities which is the
@@ -95,14 +113,15 @@ int cvode_to_Cpp_stl_jac(long int N, double t, N_Vector y, N_Vector fy, DlsMat J
  * Parameters are named according to cvs_guide.pdf, documentation is copied.
  * @param Ns[in] Number of parameters for which sensitivities are computed.
  * @param t[in] The current value of the independent variable.
- * @param y[in] The current value of the state vector.
+ * @param y[in] The current value of the state vector, y(t).
  * @param ydot[in] The current value of the right-hand side of the state equations.
  * @param yS[in] The current values of the sensitivity vectors.
  * @param ySdot[out] The output of CVSensRhsFn. On exit it must contain the sensitivity right-hand side vectors.
  * @param user_data[in] A pointer to user data, the same as the user data parameter passed to CVodeSetUserData.
  * @param tmp1, tmp2[in] N Vectors of length N which can be used as temporary storage.
  */
-int CVSensRhsFnIf(int Ns, double t, N_Vector y, N_Vector ydot,
+int CVSensRhsFnIf(int Ns, double t,
+                  N_Vector y, N_Vector ydot,
                   N_Vector *yS, N_Vector *ySdot,
                   void *user_data,
                   N_Vector tmp1, N_Vector tmp2) {

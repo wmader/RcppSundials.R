@@ -1,15 +1,12 @@
-// #define ARMA_DONT_USE_CXX11          // Forcefully prevent Armadillo from using C++11 features.
-                                     // Must be specified before including RcppArmadillo.h.
+#include <algorithm>
+#include <string>
+#include <limits>
+#include <array>
+#include <vector>
 #include <RcppArmadillo.h>
-#include <Rcpp.h>
 #include <cvodes/cvodes.h>           // CVODES functions and constants
 #include <nvector/nvector_serial.h>  // Serial N_Vector
 #include <cvodes/cvodes_dense.h>     // CVDense
-#include <algorithm>
-#include <string> 
-#include <limits> 
-#include <array>
-#include <vector>
 #include <time.h>
 #include <datatypes.h>               // RcppSundials data types and helper functions.
 #include <interfaces.h>
@@ -343,7 +340,7 @@ NumericMatrix wrap_cvodes(NumericVector times, NumericVector states_,
   
   // If we want to provide our own Jacobian, set the interface function to Sundials
   if(as<bool>(settings["jacobian"])) {
-    flag = CVDlsSetDenseJacFn(cvode_mem, cvode_to_Cpp_stl_jac);
+    flag = CVDlsSetDenseJacFn(cvode_mem, CVDlsDenseJacFnIf);
     if(flag < CV_SUCCESS) {
       if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
       if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);} 
@@ -635,8 +632,7 @@ NumericMatrix cvode_calc_jac(SEXP jacobian_, NumericVector t, NumericVector stat
   if(forcings_data.size() > 0) forcings = interpolate_list(forcings_data, t[0]);
   // Call the model
   arma::mat output = jacobian(t[0], as<vector<double>>(states),
-                                          as<vector<double>>(parameters),
-                                          forcings);
+                                          as<vector<double>>(parameters));
   // return the output as a list
   return wrap(output);
 } 
