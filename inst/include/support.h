@@ -22,3 +22,28 @@ void checkModel(int t, int neq,
   ::Rf_error("Mismatch between number of state initials and derivatives returned from model.");
   }
 }
+
+
+
+void* createCVodes(const Rcpp::List& settings) {
+  void* cvode_mem = nullptr;
+
+  if(Rcpp::as<std::string>(settings["method"]) == "bdf") {
+    cvode_mem = CVodeCreate(CV_BDF, CV_NEWTON);
+  } else if(Rcpp::as<std::string>(settings["method"]) == "adams"){
+    cvode_mem = CVodeCreate(CV_ADAMS, CV_FUNCTIONAL);
+  } else {
+    throw std::invalid_argument("Please choose bdf or adams as method");
+  }
+
+  if(cvode_mem == nullptr) std::runtime_error("Could not create the CVODES solver object.");
+  return cvode_mem;
+}
+
+
+
+void cvSuccess(const int flag, const std::string& msg) {
+  if(flag < CV_SUCCESS) {
+    throw std::runtime_error(std::string("Initializing CVodes failed:\n") + msg);
+  }
+}

@@ -10,7 +10,6 @@
 #include <datatypes.h>
 #include <interfaces.h>
 #include <support.h>
-#include <initcvodes.h>
 
 
 
@@ -217,7 +216,7 @@ Rcpp::NumericMatrix wrap_cvodes(Rcpp::NumericVector times,
   // As armadillo is column-major, output containers are allocated such that
   // each column refers to one time point.
   const int nTimepoints = times.size();
-  arma::mat outputStates(neq, nTimepoints, arma::fill::zeros);
+  arma::mat outputStates(neq, nTimepoints);
   std::copy(stateInits.cbegin(), stateInits.cend(), outputStates.begin_col(0));
 
 
@@ -231,206 +230,139 @@ Rcpp::NumericMatrix wrap_cvodes(Rcpp::NumericVector times,
   std::copy(stateInits.cbegin(), stateInits.cend(), NV_DATA_S(y));
 
   void* cvode_mem = nullptr;
-  if(Rcpp::as<std::string>(settings["method"]) == "bdf") {
-    cvode_mem = CVodeCreate(CV_BDF, CV_NEWTON);
-  } else if(Rcpp::as<std::string>(settings["method"]) == "adams"){
-    cvode_mem = CVodeCreate(CV_ADAMS, CV_NEWTON);
-  } else {
-    throw std::invalid_argument("Please choose bdf or adams as method");
-  }
-//   try {
-//   // Instantiate a CVODES solver object
-//   createCVodes(settings, cvode_mem);
-//
-//   } catch(std::exception &ex) {
-//     if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
-//     if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);}
-//     forward_exception_to_r(ex);
-//   } catch(...) {
-//     ::Rf_error("C++ exception (unknown reason)");
-//   }
-  
-  // Shut up Sundials (errors should not be printed to the screen)
-  // FIXME: But they should go somewhere, may be use a dedicated log file.
-  int flag = CVodeSetErrFile(cvode_mem, NULL);
-  if(flag < CV_SUCCESS) {
-   if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
-   if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);}       
-   ::Rf_error("Error in the CVodeSetErrFile function");
-  }
-  
-  // Initialize the Sundials solver. Here we pass initial N_Vector, the interface function and the initial time
-  flag = CVodeInit(cvode_mem, CVRhsFnIf, times[0], y);
-  if(flag < CV_SUCCESS) {
-    if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
-    if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);}     
-    ::Rf_error("Error in the CVodeInit function");
-  }
-  
-  // Tell Sundials the tolerance settings for error control
-  Rcpp::NumericVector abstol = settings["atol"]; 
-  if(abstol.size() > 1) {
-    N_Vector Nabstol = nullptr;
-    Nabstol = N_VNew_Serial(neq);
-    for(int i = 0; i < neq; i++) {
-      NV_Ith_S(Nabstol,i) = abstol[i];
-    }
-    flag = CVodeSVtolerances(cvode_mem, settings["rtol"], Nabstol);
-  } else {
-    flag = CVodeSStolerances(cvode_mem, settings["rtol"], settings["atol"]);    
-  }
-
-  if(flag < CV_SUCCESS) {
-    if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
-    if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);} 
-    ::Rf_error("Error in the CVodeSStolerances function");
-  }
-  
-  // Select direct linear solver for dense matrices.
-  flag = CVDense(cvode_mem, neq);
-  if(flag < CV_SUCCESS) {
-    if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
-    if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);} 
-    ::Rf_error("Error in the CVDense function");
-  }
-
-  // Give Sundials a pointer to the struct where all the user data is stored. It will be passed (untouched) to the interface as void pointer
   UserDataIVP data_model{neq, parameters, model, jacobian, sensitivities};
-  flag = CVodeSetUserData(cvode_mem, &data_model);
-  if(flag < CV_SUCCESS) {
-    if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
-    if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);} 
-    ::Rf_error("Error in the CVodeSetUserData function");
-  }
-  
-  // If we want to provide our own Jacobian, set the interface function to Sundials
-  if(Rcpp::as<bool>(settings["jacobian"])) {
-    flag = CVDlsSetDenseJacFn(cvode_mem, CVDlsDenseJacFnIf);
-    if(flag < CV_SUCCESS) {
-      if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
-      if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);} 
-      ::Rf_error("Error in the CVDlsSetDenseJacFn function");
+
+  try {
+    // Instantiate a CVODES solver object
+    cvode_mem = createCVodes(settings);
+
+    // Set error output file
+    // FIXME: Errors should go somewhere. Right now, they are simply discarded.
+    int flag = CVodeSetErrFile(cvode_mem, nullptr);
+    cvSuccess(flag, "Error: Setting error output file.");
+
+
+    // Initialize CVODES solver object
+    flag = CVodeInit(cvode_mem, CVRhsFnIf, times[0], y);
+    cvSuccess(flag, "Could not Initialize CVODES solver object.");
+
+    // Set absolute and relative tolerance for integration
+    flag = CVodeSStolerances(cvode_mem, settings["rtol"], settings["atol"]);
+    cvSuccess(flag, "Error on setting integration tolerance.");
+
+    // Select linear solver CVDENSE
+    flag = CVDense(cvode_mem, neq);
+    cvSuccess(flag, "Could not set dense linear solver.");
+
+    // Attache user data to CVODES memory block
+    flag = CVodeSetUserData(cvode_mem, &data_model);
+    cvSuccess(flag, "Failure: Attach user data.");
+
+    // Do we supply equations for the Jacobian? If so, set them.
+    if(Rcpp::as<bool>(settings["jacobian"])) {
+      flag = CVDlsSetDenseJacFn(cvode_mem, CVDlsDenseJacFnIf);
+      cvSuccess(flag, "Failure: Setup user-supplied Jacobian function.");
     }
+
+    // Set maximum number of steps taken by the solver to reach next output time
+    flag = CVodeSetMaxNumSteps(cvode_mem, settings["maxsteps"]);
+    cvSuccess(flag, "Could not set maximum number of steps.");
+
+    // Set maximum order of the linear multistep method
+    flag = CVodeSetMaxOrd(cvode_mem, settings["maxord"]);
+    cvSuccess(flag, "Error: Specifying maximum order of linear multistep method. ");
+
+    // Set initial step size
+    flag = CVodeSetInitStep(cvode_mem, settings["hini"]);
+    cvSuccess(flag, "Error: Setting initial step size.");
+
+    // Set minimum step size
+    flag = CVodeSetMinStep(cvode_mem, settings["hmin"]);
+    cvSuccess(flag, "Error:S etting minimum step size.");
+
+    // Set the maximum step size
+    flag = CVodeSetMaxStep(cvode_mem, settings["hmax"]);
+    cvSuccess(flag, "Error: Setting maximum step size.");
+
+    // Set the maximum number of error test fails per step
+    flag = CVodeSetMaxErrTestFails(cvode_mem, settings["maxerr"]);
+    cvSuccess(flag, "Error: Setting error test fails.");
+
+    // Set the maximum number of nonlinear iterations per step
+    flag = CVodeSetMaxNonlinIters(cvode_mem, settings["maxnonlin"]);
+    cvSuccess(flag, "Error: Setting maximum number of nonlinear solver iterations.");
+
+    // Set the maximum number of nonlinear solver convergence failures per step
+    flag = CVodeSetMaxConvFails(cvode_mem, settings["maxconvfail"]);
+    cvSuccess(flag, "Error: Setting maximum number of nonlinear solver convergence failures.");
+
+    // Should BDF stability limit detection
+    flag = CVodeSetStabLimDet(cvode_mem, Rcpp::as<bool>(settings["stability"]));
+    cvSuccess(flag, "Error: Setting BDF stability limit detection.");
+  }
+  catch(std::exception &ex) {
+    if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
+    if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);}
+    forward_exception_to_r(ex);
+  } catch(...) {
+    if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
+    if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);}
+    ::Rf_error("Unknown error on initializing the CVODES ");
   }
 
 
-  // Set maximum number of steps
-  flag = CVodeSetMaxNumSteps(cvode_mem, settings["maxsteps"]);
-  if(flag < CV_SUCCESS) {
-    if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
-    if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);} 
-    ::Rf_error("Error in the CVodeSetUserData function");
-  }
-  
-  // Set maximum order of the integration
-  flag = CVodeSetMaxOrd(cvode_mem, settings["maxord"]); 
-  if(flag < CV_SUCCESS) {
-    if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
-    if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);} 
-    ::Rf_error("Error in the CVodeSetMaxOrd function");
-  }
-  
-  // Set the initial step size
-  flag = CVodeSetInitStep(cvode_mem, settings["hini"]);  
-  if(flag < CV_SUCCESS) {
-    if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
-    if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);} 
-    ::Rf_error("Error in the CVodeSetInitStep function");
-  }
-  
-  // Set the minimum step size
-  flag = CVodeSetMinStep(cvode_mem, settings["hmin"]);  
-  if(flag < CV_SUCCESS) {
-    if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
-    if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);} 
-    ::Rf_error("Error in the CVodeSetMinStep function");
-  }
-  
-  // Set the maximum step size
-  flag = CVodeSetMaxStep(cvode_mem, settings["hmax"]);  
-  if(flag < CV_SUCCESS) {
-    if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
-    if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);} 
-    ::Rf_error("Error in the CVodeSetMaxStep function");
-  }
-  
-  // Set the maximum number of error test fails
-  flag = CVodeSetMaxErrTestFails(cvode_mem, settings["maxerr"]);  
-  if(flag < CV_SUCCESS) {
-    if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
-    if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);} 
-    ::Rf_error("Error in the CVodeSetMaxErrTestFails function");
-  }
-  
-  // Set the maximum number of nonlinear iterations per step
-  flag = CVodeSetMaxNonlinIters(cvode_mem, settings["maxnonlin"]);  
-  if(flag < CV_SUCCESS) {
-    if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
-    if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);} 
-    ::Rf_error("Error in the CVodeSetMaxNonlinIters function");
-  }
-  
-  // Set the maximum number of convergence failures
-  flag = CVodeSetMaxConvFails(cvode_mem, settings["maxconvfail"]);   
-  if(flag < CV_SUCCESS) {
-    if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
-    if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);} 
-    ::Rf_error("Error in the CVodeSetMaxConvFails function");
-  }
-  
-  // Set stability limit detection
-  flag = CVodeSetStabLimDet(cvode_mem, Rcpp::as<bool>(settings["stability"]));
-  if(flag < CV_SUCCESS) {
-    if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
-    if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);} 
-    ::Rf_error("Error in the CVodeSetStabLimDet function");
-  }
-  
 
-  /*
-   *
-   * Enables sensitivity calculation.
-   *
-   */
-  // Set up sensitivities
+  //////////////////////////////
+  // Initialize sensitivities //
+  //////////////////////////////
+
+  // Prepare
   const int Ns = neq + parameters.size();
   const int nPar = parameters.size();
   const int nSens = neq * (neq + nPar);
-  N_Vector* yS = N_VCloneVectorArray_Serial(Ns, y);
-  arma::mat outputSensitivities(nSens, nTimepoints, arma::fill::zeros);
+  N_Vector* yS = nullptr;
+  arma::mat outputSensitivities;
+
   if(isSens) {
+    // Set cvodes and output container to correct size
+    yS = N_VCloneVectorArray_Serial(Ns, y);
+    outputSensitivities.set_size(nSens, nTimepoints);
+
+    // Convert sensitivity initials to standard containers
     std::vector<double> sensitivities{Rcpp::as<std::vector<double>>(initSens_)};
 
-    // Copy initial sensitivities to sensitivity output matrix.
+    // Copy initial sensitivities to sensitivity output container
     std::copy(sensitivities.begin(), sensitivities.end(), outputSensitivities.begin_col(0));
 
-    // Initialize sensitivity vector yS.
+    // Initialize cvodes sensitivity container yS
     auto it = sensitivities.cbegin();
     for(int i = 0; i < Ns; ++i) {
       std::copy(it, it + neq, NV_DATA_S(yS[i]));
       advance(it, neq);
     }
 
-    // Switch on sensitivity calculation in cvodes
-    flag = CVodeSensInit(cvode_mem, Ns, CV_SIMULTANEOUS, CVSensRhsFnIf, yS);
-    if(flag < CV_SUCCESS) {
-      if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
-      if(yS == nullptr) {free(yS);} else {N_VDestroyVectorArray_Serial(yS, Ns);}
-      if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);}
-      ::Rf_error("Error in the CVodeSensInit function");
-    }
+    try {
+      // Switch on sensitivity calculation in cvodes
+      int flag = CVodeSensInit(cvode_mem, Ns, CV_SIMULTANEOUS, CVSensRhsFnIf, yS);
+      cvSuccess(flag, "Error: Switch on sensitivities.");
 
-    // FIXME: Use scalar tolerances.
-    flag = CVodeSensEEtolerances(cvode_mem);
-    if(flag < CV_SUCCESS) {
+      // FIXME: Use scalar tolerances.
+      flag = CVodeSensEEtolerances(cvode_mem);
+      cvSuccess(flag, "Error: Setting sensitivity tolerances.");
+    } catch(std::exception &ex) {
       if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
       if(yS == nullptr) {free(yS);} else {N_VDestroyVectorArray_Serial(yS, Ns);}
       if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);}
-      ::Rf_error("Error in the CVodeSensEEtolerances function");
+      forward_exception_to_r(ex);
+    } catch(...) {
+      if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
+      if(yS == nullptr) {free(yS);} else {N_VDestroyVectorArray_Serial(yS, Ns);}
+      if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);}
+      ::Rf_error("C++ exception (unknown reason)");
     }
   }
 
-  
+
 
   ////////////////////
   // Main time loop //
@@ -443,7 +375,7 @@ Rcpp::NumericMatrix wrap_cvodes(Rcpp::NumericVector times,
 
     // In each time-step, solutions are advanced by calling CVode
     for(int t = 1; t < nTimepoints; ++t) {
-      flag = CVode(cvode_mem, times[t], y, &tretStates, CV_NORMAL);
+      int flag = CVode(cvode_mem, times[t], y, &tretStates, CV_NORMAL);
       if(flag < CV_SUCCESS) {
         switch(flag) {
           case CV_TOO_MUCH_WORK:
@@ -480,7 +412,6 @@ Rcpp::NumericMatrix wrap_cvodes(Rcpp::NumericVector times,
             throw std::runtime_error(std::string("CVodes error code: ") + std::to_string(flag)); break;
         }
       }
-
 
 
       //////////////////////
@@ -529,12 +460,14 @@ Rcpp::NumericMatrix wrap_cvodes(Rcpp::NumericVector times,
 //     }
 //   }
 
+
+
   ////////////////////////
   // Cleanup and return //
   ////////////////////////
 
   // Free our resources
-  if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y); }
+  if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
   if(yS == nullptr) {free(yS);} else {N_VDestroyVectorArray_Serial(yS, Ns);}
   if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);}
 
