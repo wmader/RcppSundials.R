@@ -2,12 +2,15 @@
 #include <array>
 #include <vector>
 #include <algorithm>
+#include <stdexcept>
 #include <RcppArmadillo.h>
-#include <cvodes/cvodes.h>           // CVODES functions and constants
-#include <nvector/nvector_serial.h>  // Serial N_Vector
-#include <cvodes/cvodes_dense.h>     // CVDense
-#include <datatypes.h>               // RcppSundials data types and helper functions.
+#include <cvodes/cvodes.h>
+#include <nvector/nvector_serial.h>
+#include <cvodes/cvodes_dense.h>
+#include <datatypes.h>
 #include <interfaces.h>
+#include <support.h>
+#include <initcvodes.h>
 
 
 
@@ -185,100 +188,67 @@ Rcpp::NumericMatrix wrap_cvodes(Rcpp::NumericVector times,
                                 Rcpp::List forcings_data_,
                                 Rcpp::List settings,
                                 SEXP model_, SEXP jacobian_, SEXP sens_) {
-  // Cast SEXP to correct function pointers
-  statesRHS* model = (statesRHS *) R_ExternalPtrAddr(model_);
+  // Cast function pointers
+  statesRHS* model = reinterpret_cast<statesRHS*>(R_ExternalPtrAddr(model_));
 
   statesJacRHS* jacobian = nullptr;
   auto isJac = Rcpp::as<bool>(settings["jacobian"]);
-  if(isJac) jacobian = (statesJacRHS *) R_ExternalPtrAddr(jacobian_);
+  if(isJac) jacobian = reinterpret_cast<statesJacRHS*>(R_ExternalPtrAddr(jacobian_));
 
   sensitivitiesRHS* sensitivities = nullptr;
   auto isSens = Rcpp::as<bool>(settings["sensitivities"]);
-  if(isSens) sensitivities = (sensitivitiesRHS *) R_ExternalPtrAddr(sens_);
+  if(isSens) sensitivities = reinterpret_cast<sensitivitiesRHS*>(R_ExternalPtrAddr(sens_));
 
 
-  // Store all inputs in the data struct, prior conversion to stl and Armadillo classes
-  std::vector<double> parameters{Rcpp::as<std::vector<double>>(parameters_)};
-  std::vector<double> states{Rcpp::as<std::vector<double>>(states_)};
-  std::vector<arma::mat> forcings_data(forcings_data_.size());
-  if(forcings_data_.size() > 0) 
-    for(int i = 0; i < forcings_data_.size(); i++)
-      forcings_data[i] = Rcpp::as<arma::mat>(forcings_data_[i]);
+
+  // Convert input to standard containers
+  auto stateInits(Rcpp::as<std::vector<double>>(states_));
+  auto parameters(Rcpp::as<std::vector<double>>(parameters_));
 
 
-  /*
-   *
-   Make a first call to the model to check that everything is ok and retrieve the number of observed variables
-   *
-   */
-  std::vector<double> forcings(forcings_data.size());
-  if(forcings_data.size() > 0) forcings = interpolate_list(forcings_data, times[0]);
-  std::array<std::vector<double>, 2> first_call;
-  try {
-    first_call = model(times[0], states, parameters);
-  } catch(std::exception &ex) {
-    forward_exception_to_r(ex);
-  } catch(...) {
-    ::Rf_error("c++ exception (unknown reason)");
-  }
+
+  // Test model evaluation
+  const int neq = stateInits.size();
+  checkModel(times[0], neq, stateInits, parameters, model);
 
 
-  // Check length of time derivatives against the information passed through settings
-  const int neq = states.size();
-  if(first_call[0].size() != neq) {
-    ::Rf_error("Length of time derivatives returned by the model does not coincide with the number of state variables.");
-  }
 
-  /*
-   *
-   Fill up the output matrix with the values for the initial time                    *
-   *
-   */
-  // Get and check number of output states and observations
-  auto noutStates = Rcpp::as<long int>(settings["which_states"]);
-  auto noutObserved = Rcpp::as<long int>(settings["which_observed"]);
-  // This must be checked before comparisons to *.size(), as size_type is
-  // unsigned.
-  if(noutStates < 0 or noutObserved < 0) {
-    ::Rf_error("Negative amount of states or observables requested");
-  }
-
-  if(noutStates > neq or noutObserved > first_call[1].size()) {
-    ::Rf_error("More states or observations requested than provided by the model");
-  }
-
-  if(noutStates == 0 and noutObserved == 0) {
-    ::Rf_error("Request at least one state or observable to be returned");
-  }
-
-  // Copy all time points, initial states and observations into output.
-  // As observations can depend on all states, all states, not only the first
-  // noutStates are considered.
-  arma::mat output(times.size(), 1 + neq + noutObserved, arma::fill::zeros);
-  for(auto h = 0; h < times.size(); ++h) output.at(h, 0) = times[h];
-  for(auto h = 0; h < neq; ++h) output.at(0, h + 1) = states[h];
-  for(auto h = 0; h < noutObserved; ++h) output.at(0, h + 1 + neq) = first_call[1][h];
+  // Store initial states in output matrix
+  // As armadillo is column-major, output containers are allocated such that
+  // each column refers to one time point.
+  const int nTimepoints = times.size();
+  arma::mat outputStates(neq, nTimepoints, arma::fill::zeros);
+  std::copy(stateInits.cbegin(), stateInits.cend(), outputStates.begin_col(0));
 
 
-  /*
-   *
-   Initialize CVODE and pass all initial inputs
-   *
-   */
-  N_Vector y = nullptr;
-  y = N_VNew_Serial(neq);
-  std::copy(states.cbegin(), states.cend(), NV_DATA_S(y));
 
-  void *cvode_mem = nullptr;
+  //////////////////////
+  // Initialize CVODE //
+  //////////////////////
+
+  // Copy initial states into cvode state container y.
+  N_Vector y = N_VNew_Serial(neq);
+  std::copy(stateInits.cbegin(), stateInits.cend(), NV_DATA_S(y));
+
+  void* cvode_mem = nullptr;
   if(Rcpp::as<std::string>(settings["method"]) == "bdf") {
-    cvode_mem = CVodeCreate(CV_BDF, CV_NEWTON);     
+    cvode_mem = CVodeCreate(CV_BDF, CV_NEWTON);
   } else if(Rcpp::as<std::string>(settings["method"]) == "adams"){
-    cvode_mem = CVodeCreate(CV_ADAMS, CV_NEWTON);     
+    cvode_mem = CVodeCreate(CV_ADAMS, CV_NEWTON);
   } else {
-    if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
-    if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);}
-    ::Rf_error("Please choose bdf or adams as method");
+    throw std::invalid_argument("Please choose bdf or adams as method");
   }
+//   try {
+//   // Instantiate a CVODES solver object
+//   createCVodes(settings, cvode_mem);
+//
+//   } catch(std::exception &ex) {
+//     if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
+//     if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);}
+//     forward_exception_to_r(ex);
+//   } catch(...) {
+//     ::Rf_error("C++ exception (unknown reason)");
+//   }
   
   // Shut up Sundials (errors should not be printed to the screen)
   // FIXME: But they should go somewhere, may be use a dedicated log file.
@@ -427,12 +397,12 @@ Rcpp::NumericMatrix wrap_cvodes(Rcpp::NumericVector times,
   const int nPar = parameters.size();
   const int nSens = neq * (neq + nPar);
   N_Vector* yS = N_VCloneVectorArray_Serial(Ns, y);
-  arma::mat outSensitivities(times.size(), nSens, arma::fill::zeros);
+  arma::mat outputSensitivities(nSens, nTimepoints, arma::fill::zeros);
   if(isSens) {
     std::vector<double> sensitivities{Rcpp::as<std::vector<double>>(initSens_)};
 
     // Copy initial sensitivities to sensitivity output matrix.
-    for(auto i = 0; i < nSens; ++i) outSensitivities(0, i) = sensitivities[i];
+    std::copy(sensitivities.begin(), sensitivities.end(), outputSensitivities.begin_col(0));
 
     // Initialize sensitivity vector yS.
     auto it = sensitivities.cbegin();
@@ -462,32 +432,18 @@ Rcpp::NumericMatrix wrap_cvodes(Rcpp::NumericVector times,
 
   
 
-  // FIXME: For large noutStates, it might be faster to iterate over
-  // ydata = NV_DATA_S(y) instead of using NV_Ith_S(y,i).
-  /*
-   *
-   Main time loop. Each timestep call cvode. Handle exceptions and fill up output
-   *
-   */
-  // Preparations
-  auto checkPositive = Rcpp::as<bool>(settings["positive"]);
-  auto zero = Rcpp::as<double>(settings["minimum"]);
-  double t = times[0];
-  double tret = 0;
+  ////////////////////
+  // Main time loop //
+  ////////////////////
 
   try {
-    for(int i = 1; i < times.size(); i++) {
-      flag = CVode(cvode_mem, times[i], y, &t, CV_NORMAL);
-      if(checkPositive) {
-        for(auto h = 0; h < neq; h++) {
-         if(NV_Ith_S(y,h) < zero) {
-           Rcpp::Rcout << "The state variable at position " << h + 1 << " became smaller than minimum: " << NV_Ith_S(y,h) << " at time: " << times[i] << '\n';
-           if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
-           if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);}
-           ::Rf_error("At least one state became smaller than minimum");
-         }
-        }
-      }
+    // Prepare
+    double tretStates = 0;
+    double tretSensitivities = 0;
+
+    // In each time-step, solutions are advanced by calling CVode
+    for(int t = 1; t < nTimepoints; ++t) {
+      flag = CVode(cvode_mem, times[t], y, &tretStates, CV_NORMAL);
       if(flag < CV_SUCCESS) {
         switch(flag) {
           case CV_TOO_MUCH_WORK:
@@ -525,63 +481,107 @@ Rcpp::NumericMatrix wrap_cvodes(Rcpp::NumericVector times,
         }
       }
 
-      // Write states to output
-      for(auto h = 0; h < neq; ++h) output(i, h + 1) = NV_Ith_S(y,h);
 
-      // Copy initial sensitivities to sensitivity output matrix.
-      flag = CVodeGetSens(cvode_mem, &tret, yS);
+
+      //////////////////////
+      // Read out results //
+      //////////////////////
+
+      // Copy states to output container
+      std::copy(NV_DATA_S(y), NV_DATA_S(y) + neq, outputStates.begin_col(t));
+
+      // Copy sensitivities to output container
+      flag = CVodeGetSens(cvode_mem, &tretSensitivities, yS);
       if(flag < CV_SUCCESS) {
-        throw std::runtime_error("Error on reading out sensitivities.");
+        throw std::runtime_error("Error in CVodeGetSens: Could not extract sensitivities.");
       } else {
-        arma::mat::row_iterator itOutSens = outSensitivities.begin_row(i);
+        auto itOutSens = outputSensitivities.begin_col(t);
         for(auto j = 0; j < Ns; ++j) {
-          for(auto k = 0; k < neq; ++k) {
-            *itOutSens = NV_Ith_S(yS[j], k);
-            ++itOutSens;
-          }
+          auto sensData = NV_DATA_S(yS[j]);
+          std::copy(sensData, sensData + neq, itOutSens);
+          std::advance(itOutSens, neq);
         }
       }
 
     }
   } catch(std::exception &ex) {
     if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
+    if(yS == nullptr) {free(yS);} else {N_VDestroyVectorArray_Serial(yS, Ns);}
     if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);}
     forward_exception_to_r(ex);
   } catch(...) {
     if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
+    if(yS == nullptr) {free(yS);} else {N_VDestroyVectorArray_Serial(yS, Ns);}
     if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);}
-    ::Rf_error("c++ exception (unknown reason)");
+    ::Rf_error("C++ exception (unknown reason)");
   }
 
 
-  // If we have observed variables we call the model function again
-  if(noutObserved > 0 && flag >= 0.0) {
-    for(unsigned int i = 1; i < times.size(); ++i) {
-      // Get forcings values at time 0.
-      if(forcings_data.size() > 0) forcings = interpolate_list(forcings_data, times[i]);
-      // Get the simulate state variables
-      for(auto j = 0; j < neq; j++) states[j] = output(i,j + 1);
-      // Call the model function to retrieve total number of outputs and initial values for derived variables
-      std::array<std::vector<double>, 2> model_call  = model(times[i], states, parameters);
-      // Derived variables already stored by the interface function
-      for(auto h = 0; h < noutObserved; ++h) output(i, h + 1 + neq) = model_call[1][h];
-    }
-  }
+//   // If we have observed variables we call the model function again
+//   if(noutObserved > 0 && flag >= 0.0) {
+//     for(unsigned int i = 1; i < nTimepoints; ++i) {
+//       // Get the simulate state variables
+//       for(auto j = 0; j < neq; j++) stateInits[j] = output(i,j + 1);
+//       // Call the model function to retrieve total number of outputs and initial values for derived variables
+//       std::array<std::vector<double>, 2> model_call  = model(times[i], stateInits, parameters);
+//       // Derived variables already stored by the interface function
+//       for(auto h = 0; h < noutObserved; ++h) output(i, h + 1 + neq) = model_call[1][h];
+//     }
+//   }
 
-  // De-allocate the N_Vector and the cvode_mem structures
-  if(y == nullptr) {free(y);} else { N_VDestroy_Serial(y); }
-  if(yS == nullptr) {free(yS);} else { N_VDestroyVectorArray_Serial(yS, Ns); }
+  ////////////////////////
+  // Cleanup and return //
+  ////////////////////////
+
+  // Free our resources
+  if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y); }
+  if(yS == nullptr) {free(yS);} else {N_VDestroyVectorArray_Serial(yS, Ns);}
   if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);}
 
-  // Subset output for time, noutStates, and noutObserved.
-  std::vector<unsigned int> idxAux(1 + noutStates + noutObserved, 0);
-  iota(idxAux.begin() + 1, idxAux.begin() + 1 + noutStates, 1);
-  iota(idxAux.begin() + 1 + noutStates, idxAux.end(), neq + 1);
-  arma::uvec idx(idxAux);
+//   // Subset output for time, noutStates, and noutObserved.
+//   std::vector<unsigned int> idxAux(1 + noutStates + noutObserved, 0);
+//   iota(idxAux.begin() + 1, idxAux.begin() + 1 + noutStates, 1);
+//   iota(idxAux.begin() + 1 + noutStates, idxAux.end(), neq + 1);
+//   arma::uvec idx(idxAux);
+//
+//   if(isSens) {
+//     return Rcpp::wrap(static_cast<arma::mat>(arma::join_horiz(output.cols(idx), outSensitivities)));
+//   } else {
+//     return Rcpp::wrap(static_cast<arma::mat>(output.cols(idx)));
+//   }
 
-  if(isSens) {
-    return Rcpp::wrap(static_cast<arma::mat>(arma::join_horiz(output.cols(idx), outSensitivities)));
-  } else {
-    return Rcpp::wrap(static_cast<arma::mat>(output.cols(idx)));
-  }
+
+  // Prepare output and return
+  arma::mat outputTime(nTimepoints, 1);
+  std::copy(times.begin(), times.end(), outputTime.begin_col(0));
+
+  arma::inplace_trans(outputStates);
+  arma::inplace_trans(outputSensitivities);
+
+  arma::mat output = arma::join_horiz(arma::join_horiz(outputTime, outputStates), outputSensitivities);
+
+  return Rcpp::wrap(static_cast<arma::mat>(output));
 }
+
+
+
+/////////////////////////////////
+// Discard >n states on return //
+/////////////////////////////////
+
+// // Get and check number of output states and observations
+// auto noutStates = Rcpp::as<long int>(settings["which_states"]);
+// auto noutObserved = Rcpp::as<long int>(settings["which_observed"]);
+// // This must be checked before comparisons to *.size(), as size_type is
+// // unsigned.
+// if(noutStates < 0 or noutObserved < 0) {
+//   ::Rf_error("Negative amount of states or observables requested");
+// }
+//
+// if(noutStates > neq or noutObserved > first_call[1].size()) {
+//   ::Rf_error("More states or observations requested than provided by the model");
+// }
+//
+// if(noutStates == 0 and noutObserved == 0) {
+//   ::Rf_error("Request at least one state or observable to be returned");
+// }
