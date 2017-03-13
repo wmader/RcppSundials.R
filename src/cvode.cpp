@@ -303,11 +303,11 @@ Rcpp::NumericMatrix wrap_cvodes(Rcpp::NumericVector times,
   catch(std::exception &ex) {
     if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
     if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);}
-    forward_exception_to_r(ex);
+    Rcpp::stop(ex.what());
   } catch(...) {
     if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
     if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);}
-    ::Rf_error("Unknown error on initializing the CVODES ");
+    Rcpp::stop("Unknown error on initializing the CVODES ");
   }
 
 
@@ -353,12 +353,12 @@ Rcpp::NumericMatrix wrap_cvodes(Rcpp::NumericVector times,
       if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
       if(yS == nullptr) {free(yS);} else {N_VDestroyVectorArray_Serial(yS, Ns);}
       if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);}
-      forward_exception_to_r(ex);
+      Rcpp::stop(ex.what());
     } catch(...) {
       if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
       if(yS == nullptr) {free(yS);} else {N_VDestroyVectorArray_Serial(yS, Ns);}
       if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);}
-      ::Rf_error("C++ exception (unknown reason)");
+      Rcpp::stop("C++ exception (unknown reason)");
     }
   }
 
@@ -439,12 +439,12 @@ Rcpp::NumericMatrix wrap_cvodes(Rcpp::NumericVector times,
     if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
     if(yS == nullptr) {free(yS);} else {N_VDestroyVectorArray_Serial(yS, Ns);}
     if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);}
-    forward_exception_to_r(ex);
+    Rcpp::stop(ex.what());
   } catch(...) {
     if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
     if(yS == nullptr) {free(yS);} else {N_VDestroyVectorArray_Serial(yS, Ns);}
     if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);}
-    ::Rf_error("C++ exception (unknown reason)");
+    Rcpp::stop("C++ exception (unknown reason)");
   }
 
 
