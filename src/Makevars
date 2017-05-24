@@ -9,18 +9,13 @@ SUNDIALSOBJECTS=\
 ./solver/cvodes/cvodes_direct.o \
 ./solver/cvodes/cvodes_dense.o \
 ./solver/cvodes/cvodes_io.o \
-./solver/ida/ida.o \
-./solver/ida/ida_dense.o \
-./solver/ida/ida_direct.o \
-./solver/ida/ida_ic.o \
-./solver/ida/ida_io.o \
 ./solver/sundials/sundials_direct.o \
 ./solver/sundials/sundials_dense.o \
 ./solver/sundials/sundials_math.o \
 ./solver/sundials/sundials_nvector.o \
 ./solver/nvec_ser/nvector_serial.o
 
-WRAPOBJECTS= cvode.o ida.o test.o
+WRAPOBJECTS= cvode.o test.o
 
 PKGOBJECTS= RcppExports.o
 
