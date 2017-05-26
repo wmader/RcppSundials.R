@@ -185,6 +185,7 @@ Rcpp::NumericMatrix wrap_cvodes(Rcpp::NumericVector times,
                                 Rcpp::NumericVector parameters_,
                                 Rcpp::NumericVector initSens_,
                                 Rcpp::List forcings_data_,
+								Rcpp::DataFrame events_,
                                 Rcpp::List settings,
                                 SEXP model_, SEXP jacobian_, SEXP sens_) {
   // Cast function pointers
@@ -364,6 +365,33 @@ Rcpp::NumericMatrix wrap_cvodes(Rcpp::NumericVector times,
 
 
 
+  ////////////
+  // Events //
+  ////////////
+  std::vector<Event> events;
+
+  if (events_.nrows() > 0) {
+	// Map event data frame to vectors
+	// This is so ugly as data frames on C++ side can only be accessed by column
+	Rcpp::NumericVector variable = events_[0];
+	Rcpp::NumericVector value = events_[1];
+	Rcpp::NumericVector time = events_[2];
+	Rcpp::NumericVector method = events_[3];
+
+	// Fill event vector
+	for(int i = 0; i < events_.nrows(); ++i) {
+		events.push_back(Event{ static_cast<int>(variable[i]), value[i], time[i], static_cast<int>(method[i]) });
+	}
+	std::sort(events.begin(), events.end());
+	std::reverse(events.begin(), events.end());
+
+	// Set stop time of the earliest event
+	int flag = CVodeSetStopTime(cvode_mem, RCONST(events.back().time));
+	cvSuccess(flag, "Failure: Set event time");
+  }
+
+
+
   ////////////////////
   // Main time loop //
   ////////////////////
@@ -376,6 +404,72 @@ Rcpp::NumericMatrix wrap_cvodes(Rcpp::NumericVector times,
     // In each time-step, solutions are advanced by calling CVode
     for(int t = 1; t < nTimepoints; ++t) {
       int flag = CVode(cvode_mem, times[t], y, &tretStates, CV_NORMAL);
+
+	  // Handle events
+	  if(flag == CV_TSTOP_RETURN) {
+		  std::cout << "Handle event at time point: " << tretStates << std::endl;
+
+		  // Pop from the back of the reverse-sorted event vector all elements
+		  // belonging to the current timepoint.
+		  // cOde hands changes to states and sensitivities in one big block.
+		  // To figure our if a specific change affect a state or a sensitivity
+		  // we check the position of the variables withing the ode system. If
+		  // this number is larger than the neq, it must be a sensitivity.
+		  Event event;
+		  flag = CVodeGetSens(cvode_mem, &tretSensitivities, yS);
+		  while(events.size() > 0) {
+			  event = events.back();
+			  if (event.time == tretStates) {
+				  events.pop_back();
+			  } else {
+				break;
+			  }
+
+			  if (event.variable < neq ) {
+				  // This is a state
+				  switch (event.method) {
+					  case replace :
+						  NV_Ith_S(y, event.variable) = event.value;
+						  break;
+					  case add :
+						  NV_Ith_S(y, event.variable) += event.value;
+						  break;
+					  case multiply :
+						  NV_Ith_S(y, event.variable) *= event.value;
+						  break;
+					  default : std::cout << "Unknown event type\n"; break;
+				  }
+			  } else {
+				  // This is a sensitivity
+				  int variable = event.variable - neq;
+				  int col = static_cast<int>(variable / neq);
+				  int row = variable % neq;
+
+				  switch (event.method) {
+					  case replace :
+						  NV_Ith_S(yS[col], row) = event.value;
+						  break;
+					  case add : std::cout << "Not allowed to happen\n"; break;
+					  case multiply :
+						  NV_Ith_S(yS[col], row) *= event.value;
+						  break;
+					  default : std::cout << "Unknown event type\n"; break;
+				  }
+			  }
+		  }
+
+		  // Reset states and sensitivities
+		  flag = CVodeReInit(cvode_mem, tretStates, y);
+		  flag = CVodeSensReInit(cvode_mem, CV_SIMULTANEOUS, yS);
+
+		  // Set stop time for the next event
+		  if (events.size() > 0) {
+			  int flag = CVodeSetStopTime(cvode_mem, RCONST(events.back().time));
+			  cvSuccess(flag, "Failure: Set event time");
+		  }
+	  }
+
+	  // Handle errors
       if(flag < CV_SUCCESS) {
         switch(flag) {
           case CV_TOO_MUCH_WORK:

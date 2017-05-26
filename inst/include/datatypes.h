@@ -54,6 +54,19 @@ struct UserDataIVP {
 };
 
 
+enum EventMethod { replace = 1, add, multiply };
+
+struct Event {
+	int variable;
+	double value;
+	double time;
+	int method;
+};
+
+bool operator< (const Event& lhs, const Event& rhs) {
+	return lhs.time < rhs.time;
+}
+
 
 // Struct that contains the data to run R models
 struct data_R {
