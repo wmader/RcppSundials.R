@@ -213,12 +213,11 @@ Rcpp::NumericMatrix wrap_cvodes(Rcpp::NumericVector times,
 
 
 
-  // Store initial states in output matrix
+  // Initialize output matrix
   // As armadillo is column-major, output containers are allocated such that
   // each column refers to one time point.
   const int nTimepoints = times.size();
   arma::mat outputStates(neq, nTimepoints);
-  std::copy(stateInits.cbegin(), stateInits.cend(), outputStates.begin_col(0));
 
 
 
@@ -369,14 +368,16 @@ Rcpp::NumericMatrix wrap_cvodes(Rcpp::NumericVector times,
   // Events //
   ////////////
   std::vector<Event> events;
+  bool eventAtStart = false;
 
   if (events_.nrows() > 0) {
 	// Map event data frame to vectors
 	// This is so ugly as data frames on C++ side can only be accessed by column
-	Rcpp::NumericVector variable = events_[0];
-	Rcpp::NumericVector value = events_[1];
-	Rcpp::NumericVector time = events_[2];
-	Rcpp::NumericVector method = events_[3];
+	// We need to use column names here
+	Rcpp::NumericVector variable = events_[events_.offset("var")];
+	Rcpp::NumericVector value = events_[events_.offset("value")];
+	Rcpp::NumericVector time = events_[events_.offset("time")];
+	Rcpp::NumericVector method = events_[events_.offset("method")];
 
 	// Fill event vector
 	for(int i = 0; i < events_.nrows(); ++i) {
@@ -386,8 +387,13 @@ Rcpp::NumericMatrix wrap_cvodes(Rcpp::NumericVector times,
 	std::reverse(events.begin(), events.end());
 
 	// Set stop time of the earliest event
-	int flag = CVodeSetStopTime(cvode_mem, RCONST(events.back().time));
-	cvSuccess(flag, "Failure: Set event time");
+	if (events.back().time == times[0]) {
+		setEvent(cvode_mem, events, y, yS, times[0], neq);
+		eventAtStart = true;
+	} else {
+		int flag = CVodeSetStopTime(cvode_mem, RCONST(events.back().time));
+		cvSuccess(flag, "Failure: Set event time");
+	}
   }
 
 
@@ -395,6 +401,10 @@ Rcpp::NumericMatrix wrap_cvodes(Rcpp::NumericVector times,
   ////////////////////
   // Main time loop //
   ////////////////////
+
+  // Store initials in output matrices. Initials are possibly altered by events.
+  storeResult(cvode_mem, y, yS, outputStates, outputSensitivities,
+			  times[0], 0, neq, Ns);
 
   try {
     // Prepare
@@ -406,6 +416,12 @@ Rcpp::NumericMatrix wrap_cvodes(Rcpp::NumericVector times,
       int flag = CVode(cvode_mem, times[t], y, &tretStates, CV_NORMAL);
 
 	  // Handle events
+	  // Handle special case at which an event happens at the beginning of the simulation
+	  if (eventAtStart) {
+		  flag = CV_TSTOP_RETURN;
+		  eventAtStart = false;
+	  }
+
 	  if(flag == CV_TSTOP_RETURN) {
 		  std::cout << "Handle event at time point: " << tretStates << std::endl;
 
@@ -415,52 +431,8 @@ Rcpp::NumericMatrix wrap_cvodes(Rcpp::NumericVector times,
 		  // To figure our if a specific change affect a state or a sensitivity
 		  // we check the position of the variables withing the ode system. If
 		  // this number is larger than the neq, it must be a sensitivity.
-		  Event event;
 		  flag = CVodeGetSens(cvode_mem, &tretSensitivities, yS);
-		  while(events.size() > 0) {
-			  event = events.back();
-			  if (event.time == tretStates) {
-				  events.pop_back();
-			  } else {
-				break;
-			  }
-
-			  if (event.variable < neq ) {
-				  // This is a state
-				  switch (event.method) {
-					  case replace :
-						  NV_Ith_S(y, event.variable) = event.value;
-						  break;
-					  case add :
-						  NV_Ith_S(y, event.variable) += event.value;
-						  break;
-					  case multiply :
-						  NV_Ith_S(y, event.variable) *= event.value;
-						  break;
-					  default : std::cout << "Unknown event type\n"; break;
-				  }
-			  } else {
-				  // This is a sensitivity
-				  int variable = event.variable - neq;
-				  int col = static_cast<int>(variable / neq);
-				  int row = variable % neq;
-
-				  switch (event.method) {
-					  case replace :
-						  NV_Ith_S(yS[col], row) = event.value;
-						  break;
-					  case add : std::cout << "Not allowed to happen\n"; break;
-					  case multiply :
-						  NV_Ith_S(yS[col], row) *= event.value;
-						  break;
-					  default : std::cout << "Unknown event type\n"; break;
-				  }
-			  }
-		  }
-
-		  // Reset states and sensitivities
-		  flag = CVodeReInit(cvode_mem, tretStates, y);
-		  flag = CVodeSensReInit(cvode_mem, CV_SIMULTANEOUS, yS);
+		  setEvent(cvode_mem, events, y, yS, tretStates, neq);
 
 		  // Set stop time for the next event
 		  if (events.size() > 0) {
@@ -512,21 +484,8 @@ Rcpp::NumericMatrix wrap_cvodes(Rcpp::NumericVector times,
       // Read out results //
       //////////////////////
 
-      // Copy states to output container
-      std::copy(NV_DATA_S(y), NV_DATA_S(y) + neq, outputStates.begin_col(t));
-
-      // Copy sensitivities to output container
-      flag = CVodeGetSens(cvode_mem, &tretSensitivities, yS);
-      if(flag < CV_SUCCESS) {
-        throw std::runtime_error("Error in CVodeGetSens: Could not extract sensitivities.");
-      } else {
-        auto itOutSens = outputSensitivities.begin_col(t);
-        for(auto j = 0; j < Ns; ++j) {
-          auto sensData = NV_DATA_S(yS[j]);
-          std::copy(sensData, sensData + neq, itOutSens);
-          std::advance(itOutSens, neq);
-        }
-      }
+      storeResult(cvode_mem, y, yS, outputStates, outputSensitivities,
+				  tretSensitivities, t, neq, Ns);
 
     }
   } catch(std::exception &ex) {

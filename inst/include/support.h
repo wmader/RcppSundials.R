@@ -2,6 +2,7 @@
 #include <array>
 #include <stdexcept>
 #include <datatypes.h>
+#include <nvector/nvector_serial.h>
 
 void checkModel(int t, int neq,
                 const std::vector<double>& initials,
@@ -42,8 +43,86 @@ void* createCVodes(const Rcpp::List& settings) {
 
 
 
-void cvSuccess(const int flag, const std::string& msg) {
+void cvSuccess(int flag, const std::string& msg) {
   if(flag < CV_SUCCESS) {
     throw std::runtime_error(std::string("Initializing CVodes failed:\n") + msg);
   }
+}
+
+
+
+void setEvent(void* cvode_mem, std::vector<Event>& events, N_Vector y, N_Vector* yS,
+			  double currentTime, int neq) {
+	Event event;
+
+	while(events.size() > 0) {
+		event = events.back();
+		if (event.time == currentTime) {
+			events.pop_back();
+		} else {
+			break;
+		}
+
+		if (event.variable < neq ) {
+			// This is a state
+			switch (event.method) {
+				case replace :
+					NV_Ith_S(y, event.variable) = event.value;
+					break;
+				case add :
+					NV_Ith_S(y, event.variable) += event.value;
+					break;
+				case multiply :
+					NV_Ith_S(y, event.variable) *= event.value;
+					break;
+				default : ::Rf_error("Failure: Unknown event type."); break;
+			}
+		} else {
+			// This is a sensitivity
+			int variable = event.variable - neq;
+			int col = static_cast<int>(variable / neq);
+			int row = variable % neq;
+
+			switch (event.method) {
+				case replace :
+					NV_Ith_S(yS[col], row) = event.value;
+					break;
+				case add :
+					::Rf_error("Failure: Event method add is not allowed to change sensitivities.");
+					break;
+				case multiply :
+					NV_Ith_S(yS[col], row) *= event.value;
+					break;
+				default : ::Rf_error("Failure: Unknown event type."); break;
+			}
+		}
+	}
+
+	// Reset states and sensitivities
+	int flag = CVodeReInit(cvode_mem, currentTime, y);
+	cvSuccess(flag, "Failure: CVode could not be re-initialized.");
+	flag = CVodeSensReInit(cvode_mem, CV_SIMULTANEOUS, yS);
+	cvSuccess(flag, "Failure: Sensitivities could not be re-initialized.");
+}
+
+
+
+void storeResult(void* cvode_mem, N_Vector y, N_Vector* yS,
+				 arma::mat& outputStates, arma::mat& outputSensitivities,
+				 double tretSensitivities, int t, int neq, int Ns) {
+	// Copy states to output container
+	std::copy(NV_DATA_S(y), NV_DATA_S(y) + neq, outputStates.begin_col(t));
+
+	// Copy sensitivities to output container
+	int flag = CVodeGetSens(cvode_mem, &tretSensitivities, yS);
+	if(flag < CV_SUCCESS) {
+		throw std::runtime_error("Error in CVodeGetSens: Could not extract sensitivities.");
+	} else {
+		auto itOutSens = outputSensitivities.begin_col(t);
+		for(auto j = 0; j < Ns; ++j) {
+			auto sensData = NV_DATA_S(yS[j]);
+			std::copy(sensData, sensData + neq, itOutSens);
+			std::advance(itOutSens, neq);
+		}
+	}
 }
