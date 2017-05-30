@@ -34,10 +34,10 @@ void* createCVodes(const Rcpp::List& settings) {
   } else if(Rcpp::as<std::string>(settings["method"]) == "adams"){
     cvode_mem = CVodeCreate(CV_ADAMS, CV_FUNCTIONAL);
   } else {
-    throw std::invalid_argument("Please choose bdf or adams as method");
+	::Rf_error("Please choose bdf or adams as method");
   }
 
-  if(cvode_mem == nullptr) std::runtime_error("Could not create the CVODES solver object.");
+  if(cvode_mem == nullptr) ::Rf_error("Could not create the CVODES solver object.");
   return cvode_mem;
 }
 
@@ -49,9 +49,27 @@ void cvSuccess(int flag, const std::string& msg) {
   }
 }
 
+std::vector<Event> createEventVector(const Rcpp::DataFrame& events) {
+	// Map columns of the event data frame to vectors
+	// This is so ugly as data frames on C++ side can only be accessed by column
+	Rcpp::NumericVector variable = events[events.offset("var")];
+	Rcpp::NumericVector value = events[events.offset("value")];
+	Rcpp::NumericVector time = events[events.offset("time")];
+	Rcpp::NumericVector method = events[events.offset("method")];
+
+	// Fill event vector
+	std::vector<Event> eventVector;
+	for(int i = 0; i < events.nrows(); ++i) {
+		eventVector.push_back(Event{ static_cast<int>(variable[i]), value[i], time[i], static_cast<int>(method[i]) });
+	}
+	std::sort(eventVector.begin(), eventVector.end());
+	std::reverse(eventVector.begin(), eventVector.end());
+
+	return eventVector;
+}
 
 
-void setEvent(void* cvode_mem, std::vector<Event>& events, N_Vector y, N_Vector* yS,
+void setEvent(std::vector<Event>& events, N_Vector y, N_Vector* yS,
 			  double currentTime, int neq) {
 	Event event;
 
@@ -97,12 +115,6 @@ void setEvent(void* cvode_mem, std::vector<Event>& events, N_Vector y, N_Vector*
 			}
 		}
 	}
-
-	// Reset states and sensitivities
-	int flag = CVodeReInit(cvode_mem, currentTime, y);
-	cvSuccess(flag, "Failure: CVode could not be re-initialized.");
-	flag = CVodeSensReInit(cvode_mem, CV_SIMULTANEOUS, yS);
-	cvSuccess(flag, "Failure: Sensitivities could not be re-initialized.");
 }
 
 

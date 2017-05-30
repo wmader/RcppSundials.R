@@ -185,32 +185,63 @@ Rcpp::NumericMatrix wrap_cvodes(Rcpp::NumericVector times,
                                 Rcpp::NumericVector parameters_,
                                 Rcpp::NumericVector initSens_,
                                 Rcpp::List forcings_data_,
-								Rcpp::DataFrame events_,
+                                Rcpp::DataFrame events_,
                                 Rcpp::List settings,
                                 SEXP model_, SEXP jacobian_, SEXP sens_) {
   // Cast function pointers
   statesRHS* model = reinterpret_cast<statesRHS*>(R_ExternalPtrAddr(model_));
 
-  statesJacRHS* jacobian = nullptr;
   auto isJac = Rcpp::as<bool>(settings["jacobian"]);
-  if(isJac) jacobian = reinterpret_cast<statesJacRHS*>(R_ExternalPtrAddr(jacobian_));
+  statesJacRHS* jacobian = isJac ? reinterpret_cast<statesJacRHS*>(R_ExternalPtrAddr(jacobian_)) : nullptr;
 
-  sensitivitiesRHS* sensitivities = nullptr;
   auto isSens = Rcpp::as<bool>(settings["sensitivities"]);
-  if(isSens) sensitivities = reinterpret_cast<sensitivitiesRHS*>(R_ExternalPtrAddr(sens_));
-
-
+  sensitivitiesRHS* sensitivities = isSens ? reinterpret_cast<sensitivitiesRHS*>(R_ExternalPtrAddr(sens_)) : nullptr;
 
   // Convert input to standard containers
   auto stateInits(Rcpp::as<std::vector<double>>(states_));
   auto parameters(Rcpp::as<std::vector<double>>(parameters_));
-
-
+  auto initSensitivities = isSens ? Rcpp::as<std::vector<double>>(initSens_) : std::vector<double>();
 
   // Test model evaluation
   const int neq = stateInits.size();
   checkModel(times[0], neq, stateInits, parameters, model);
 
+  // Create cvodes internal data structures
+  // States
+  N_Vector y = N_VNew_Serial(neq);
+  // Sensitivities
+  const int Ns = neq + parameters.size();
+  N_Vector* yS = isSens ? N_VCloneVectorArray_Serial(Ns, y) : nullptr;
+
+  // Copy initial states into cvode state container y.
+  std::copy(stateInits.cbegin(), stateInits.cend(), NV_DATA_S(y));
+
+  // Copy initial sensitivities into cvode sensitivity container yS.
+  if (isSens) {
+    auto it = initSensitivities.cbegin();
+    for(int i = 0; i < Ns; ++i) {
+        std::copy(it, it + neq, NV_DATA_S(yS[i]));
+        advance(it, neq);
+    }
+  }
+
+    // With y and yS set up, lets check if there is an event right at the start
+    // which changes initial settings.
+    auto isEvents = events_.nrows() > 0;
+
+    // Create event vector
+    auto events = isEvents ? createEventVector(events_) : std::vector<Event>();
+
+    // Setup first event
+    if (isEvents) {
+        // If the first event happens right at the start of the simulation, we
+        // alter the initials in y and yS directly and _do not_ set
+        // CVodeSetStopTime(). If we would set CVodeSetStopTime(), cvodes would
+        // fail, as it is not allowed to integrate across a zero time span.
+        if (events.back().time == times[0]) {
+            setEvent(events, y, yS, times[0], neq);
+        }
+    }
 
 
   // Initialize output matrix
@@ -221,26 +252,20 @@ Rcpp::NumericMatrix wrap_cvodes(Rcpp::NumericVector times,
 
 
 
+
   //////////////////////
   // Initialize CVODE //
   //////////////////////
 
-  // Copy initial states into cvode state container y.
-  N_Vector y = N_VNew_Serial(neq);
-  std::copy(stateInits.cbegin(), stateInits.cend(), NV_DATA_S(y));
-
-  void* cvode_mem = nullptr;
+  // Instantiate a CVODES solver object
+  void* cvode_mem = createCVodes(settings);
   UserDataIVP data_model{neq, parameters, model, jacobian, sensitivities};
 
   try {
-    // Instantiate a CVODES solver object
-    cvode_mem = createCVodes(settings);
-
     // Set error output file
     // FIXME: Errors should go somewhere. Right now, they are simply discarded.
     int flag = CVodeSetErrFile(cvode_mem, nullptr);
     cvSuccess(flag, "Error: Setting error output file.");
-
 
     // Initialize CVODES solver object
     flag = CVodeInit(cvode_mem, CVRhsFnIf, times[0], y);
@@ -315,32 +340,7 @@ Rcpp::NumericMatrix wrap_cvodes(Rcpp::NumericVector times,
   //////////////////////////////
   // Initialize sensitivities //
   //////////////////////////////
-
-  // Prepare
-  const int Ns = neq + parameters.size();
-  const int nPar = parameters.size();
-  const int nSens = neq * (neq + nPar);
-  N_Vector* yS = nullptr;
-  arma::mat outputSensitivities;
-
   if(isSens) {
-    // Set cvodes and output container to correct size
-    yS = N_VCloneVectorArray_Serial(Ns, y);
-    outputSensitivities.set_size(nSens, nTimepoints);
-
-    // Convert sensitivity initials to standard containers
-    std::vector<double> sensitivities{Rcpp::as<std::vector<double>>(initSens_)};
-
-    // Copy initial sensitivities to sensitivity output container
-    std::copy(sensitivities.begin(), sensitivities.end(), outputSensitivities.begin_col(0));
-
-    // Initialize cvodes sensitivity container yS
-    auto it = sensitivities.cbegin();
-    for(int i = 0; i < Ns; ++i) {
-      std::copy(it, it + neq, NV_DATA_S(yS[i]));
-      advance(it, neq);
-    }
-
     try {
       // Switch on sensitivity calculation in cvodes
       int flag = CVodeSensInit(cvode_mem, Ns, CV_SIMULTANEOUS, CVSensRhsFnIf, yS);
@@ -364,48 +364,41 @@ Rcpp::NumericMatrix wrap_cvodes(Rcpp::NumericVector times,
 
 
 
-  ////////////
-  // Events //
-  ////////////
-  std::vector<Event> events;
-  bool eventAtStart = false;
+    ////////////
+    // Events //
+    ////////////
+    // Setting up earliest events happening past the simulation start.
+    // As all events happening right at the start are already popped of the
+    // stack by the last call to setEvents() events.back().time is now the first
+    // event happening past the simulation starting point.
+    if (events.size() > 0) {
+        int flag = CVodeSetStopTime(cvode_mem, RCONST(events.back().time));
+        cvSuccess(flag, "Failure: Set event time");
+    }
 
-  if (events_.nrows() > 0) {
-	// Map event data frame to vectors
-	// This is so ugly as data frames on C++ side can only be accessed by column
-	// We need to use column names here
-	Rcpp::NumericVector variable = events_[events_.offset("var")];
-	Rcpp::NumericVector value = events_[events_.offset("value")];
-	Rcpp::NumericVector time = events_[events_.offset("time")];
-	Rcpp::NumericVector method = events_[events_.offset("method")];
 
-	// Fill event vector
-	for(int i = 0; i < events_.nrows(); ++i) {
-		events.push_back(Event{ static_cast<int>(variable[i]), value[i], time[i], static_cast<int>(method[i]) });
-	}
-	std::sort(events.begin(), events.end());
-	std::reverse(events.begin(), events.end());
 
-	// Set stop time of the earliest event
-	if (events.back().time == times[0]) {
-		setEvent(cvode_mem, events, y, yS, times[0], neq);
-		eventAtStart = true;
-	} else {
-		int flag = CVodeSetStopTime(cvode_mem, RCONST(events.back().time));
-		cvSuccess(flag, "Failure: Set event time");
-	}
+  // Store initials in output matrices. Initials are possibly altered by events.
+  // States
+  std::copy(NV_DATA_S(y), NV_DATA_S(y) + neq, outputStates.begin_col(0));
+  // Sensitivities
+  const int nPar = parameters.size();
+  const int nSens = neq * (neq + nPar);
+  arma::mat outputSensitivities;
+  if (isSens) {
+    outputSensitivities.set_size(nSens, nTimepoints);
+    auto itOutSens = outputSensitivities.begin_col(0);
+    for(auto j = 0; j < Ns; ++j) {
+      auto sensData = NV_DATA_S(yS[j]);
+      std::copy(sensData, sensData + neq, itOutSens);
+      std::advance(itOutSens, neq);
+    }
   }
-
 
 
   ////////////////////
   // Main time loop //
   ////////////////////
-
-  // Store initials in output matrices. Initials are possibly altered by events.
-  storeResult(cvode_mem, y, yS, outputStates, outputSensitivities,
-			  times[0], 0, neq, Ns);
-
   try {
     // Prepare
     double tretStates = 0;
@@ -416,12 +409,6 @@ Rcpp::NumericMatrix wrap_cvodes(Rcpp::NumericVector times,
       int flag = CVode(cvode_mem, times[t], y, &tretStates, CV_NORMAL);
 
 	  // Handle events
-	  // Handle special case at which an event happens at the beginning of the simulation
-	  if (eventAtStart) {
-		  flag = CV_TSTOP_RETURN;
-		  eventAtStart = false;
-	  }
-
 	  if(flag == CV_TSTOP_RETURN) {
 		  std::cout << "Handle event at time point: " << tretStates << std::endl;
 
@@ -432,7 +419,12 @@ Rcpp::NumericMatrix wrap_cvodes(Rcpp::NumericVector times,
 		  // we check the position of the variables withing the ode system. If
 		  // this number is larger than the neq, it must be a sensitivity.
 		  flag = CVodeGetSens(cvode_mem, &tretSensitivities, yS);
-		  setEvent(cvode_mem, events, y, yS, tretStates, neq);
+		  setEvent(events, y, yS, tretStates, neq);
+                  // Reset states and sensitivities
+                  int flag = CVodeReInit(cvode_mem, tretStates, y);
+                  cvSuccess(flag, "Failure: CVode could not be re-initialized.");
+                  flag = CVodeSensReInit(cvode_mem, CV_SIMULTANEOUS, yS);
+                  cvSuccess(flag, "Failure: Sensitivities could not be re-initialized.");
 
 		  // Set stop time for the next event
 		  if (events.size() > 0) {
