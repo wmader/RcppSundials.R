@@ -99,7 +99,9 @@
 #'     attribute \code{address} of \code{\link[base]{getNativeSymbolInfo}}. The
 #'     signature of the model function must comply to
 #'
-#'     \code{std::array<std::vector<double>, 2> (const double& t, const std::vector<double>& states,
+#'     \code{std::array<std::vector<double>, 2> (const double& t, const std::vector<double>&
+NULL
+
 #'     const std::vector<double>& parameters, const std::vector<double>& forcings)}
 #'
 #'     Return vector \code{std::array<std::vector<double>, 2>}
@@ -133,7 +135,9 @@
 #'     model. Again, this address is the attribute \code{address} obtained
 #'     from the call to \code{\link[base]{getNativeSymbolInfo()}}. The function
 #'     must have the signature
-#'     \code{arma::mat (const double& t, const std::vector<double>& states, const std::vector<double>& parameters, const std::vector<double>& forcings)}
+#'     \code{arma::mat (const double& t, const std::vector<double>& states, const
+NULL
+
 #'     Returned is the Jacobian matrix as an \code{arma::mat} from the
 #'     Armadillo package.
 #'
@@ -164,8 +168,8 @@
 #' @author Alejandro Morales, \email{morales.s.alejandro@@gmail.com}
 #'
 #' @export
-wrap_cvodes <- function(times, states_, parameters_, initSens_, forcings_data_, events_, settings, model_, jacobian_, sens_) {
-    .Call('RcppSundials_wrap_cvodes', PACKAGE = 'RcppSundials', times, states_, parameters_, initSens_, forcings_data_, events_, settings, model_, jacobian_, sens_)
+wrap_cvodes <- function(times, states_, parameters_, initSens_, events_, settings, model_, jacobian_, sens_) {
+    .Call('RcppSundials_wrap_cvodes', PACKAGE = 'RcppSundials', times, states_, parameters_, initSens_, events_, settings, model_, jacobian_, sens_)
 }
 
 # Register entry points for exported C++ functions

@@ -25,17 +25,17 @@ namespace RcppSundials {
         }
     }
 
-    inline Rcpp::NumericMatrix wrap_cvodes(Rcpp::NumericVector times, Rcpp::NumericVector states_, Rcpp::NumericVector parameters_, Rcpp::NumericVector initSens_, Rcpp::List forcings_data_, Rcpp::DataFrame events_, Rcpp::List settings, SEXP model_, SEXP jacobian_, SEXP sens_) {
-        typedef SEXP(*Ptr_wrap_cvodes)(SEXP,SEXP,SEXP,SEXP,SEXP,SEXP,SEXP,SEXP,SEXP,SEXP);
+    inline Rcpp::NumericMatrix wrap_cvodes(Rcpp::NumericVector times, Rcpp::NumericVector states_, Rcpp::NumericVector parameters_, Rcpp::NumericVector initSens_, Rcpp::DataFrame events_, Rcpp::List settings, SEXP model_, SEXP jacobian_, SEXP sens_) {
+        typedef SEXP(*Ptr_wrap_cvodes)(SEXP,SEXP,SEXP,SEXP,SEXP,SEXP,SEXP,SEXP,SEXP);
         static Ptr_wrap_cvodes p_wrap_cvodes = NULL;
         if (p_wrap_cvodes == NULL) {
-            validateSignature("Rcpp::NumericMatrix(*wrap_cvodes)(Rcpp::NumericVector,Rcpp::NumericVector,Rcpp::NumericVector,Rcpp::NumericVector,Rcpp::List,Rcpp::DataFrame,Rcpp::List,SEXP,SEXP,SEXP)");
+            validateSignature("Rcpp::NumericMatrix(*wrap_cvodes)(Rcpp::NumericVector,Rcpp::NumericVector,Rcpp::NumericVector,Rcpp::NumericVector,Rcpp::DataFrame,Rcpp::List,SEXP,SEXP,SEXP)");
             p_wrap_cvodes = (Ptr_wrap_cvodes)R_GetCCallable("RcppSundials", "RcppSundials_wrap_cvodes");
         }
         RObject rcpp_result_gen;
         {
             RNGScope RCPP_rngScope_gen;
-            rcpp_result_gen = p_wrap_cvodes(Rcpp::wrap(times), Rcpp::wrap(states_), Rcpp::wrap(parameters_), Rcpp::wrap(initSens_), Rcpp::wrap(forcings_data_), Rcpp::wrap(events_), Rcpp::wrap(settings), Rcpp::wrap(model_), Rcpp::wrap(jacobian_), Rcpp::wrap(sens_));
+            rcpp_result_gen = p_wrap_cvodes(Rcpp::wrap(times), Rcpp::wrap(states_), Rcpp::wrap(parameters_), Rcpp::wrap(initSens_), Rcpp::wrap(events_), Rcpp::wrap(settings), Rcpp::wrap(model_), Rcpp::wrap(jacobian_), Rcpp::wrap(sens_));
         }
         if (rcpp_result_gen.inherits("interrupted-error"))
             throw Rcpp::internal::InterruptedException();

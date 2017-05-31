@@ -181,7 +181,7 @@
 // [[Rcpp::export]]
 Rcpp::NumericMatrix wrap_cvodes(Rcpp::NumericVector times, Rcpp::NumericVector states_,
                                 Rcpp::NumericVector parameters_, Rcpp::NumericVector initSens_,
-                                Rcpp::List forcings_data_, Rcpp::DataFrame events_,
+                                Rcpp::DataFrame events_,
                                 Rcpp::List settings, SEXP model_, SEXP jacobian_, SEXP sens_)
 {
     // Cast function pointers
