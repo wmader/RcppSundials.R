@@ -81,6 +81,12 @@ void setEvent(std::vector<Event>& events, N_Vector y, N_Vector* yS,
 			break;
 		}
 
+		// Pop from the back of the reverse-sorted event vector all elements
+		// belonging to the current timepoint.
+		// cOde hands changes to states and sensitivities in one big block.
+		// To figure our if a specific change affect a state or a sensitivity
+		// we check the position of the variables withing the ode system. If
+		// this number is larger than the neq, it must be a sensitivity.
 		if (event.variable < neq ) {
 			// This is a state
 			switch (event.method) {
@@ -118,23 +124,32 @@ void setEvent(std::vector<Event>& events, N_Vector y, N_Vector* yS,
 }
 
 
+inline void storeStates(const N_Vector y, arma::mat& outputStates, int neq, int t) {
+  std::copy(NV_DATA_S(y), NV_DATA_S(y) + neq, outputStates.begin_col(t));
+}
+
+inline void storeSensitivities(const N_Vector* yS, arma::mat& outputSensitivities, int neq, int Ns, int t) {
+  auto itOutSens = outputSensitivities.begin_col(t);
+  for(auto j = 0; j < Ns; ++j) {
+    auto sensData = NV_DATA_S(yS[j]);
+    std::copy(sensData, sensData + neq, itOutSens);
+    std::advance(itOutSens, neq);
+  }
+}
 
 void storeResult(void* cvode_mem, N_Vector y, N_Vector* yS,
-				 arma::mat& outputStates, arma::mat& outputSensitivities,
-				 double tretSensitivities, int t, int neq, int Ns) {
-	// Copy states to output container
-	std::copy(NV_DATA_S(y), NV_DATA_S(y) + neq, outputStates.begin_col(t));
+                 arma::mat& outputStates, arma::mat& outputSensitivities,
+                 double tretSensitivities, int t, int neq, int Ns) {
+  // Copy states to output container
+  storeStates(y, outputStates, neq, t);
 
-	// Copy sensitivities to output container
-	int flag = CVodeGetSens(cvode_mem, &tretSensitivities, yS);
-	if(flag < CV_SUCCESS) {
-		throw std::runtime_error("Error in CVodeGetSens: Could not extract sensitivities.");
-	} else {
-		auto itOutSens = outputSensitivities.begin_col(t);
-		for(auto j = 0; j < Ns; ++j) {
-			auto sensData = NV_DATA_S(yS[j]);
-			std::copy(sensData, sensData + neq, itOutSens);
-			std::advance(itOutSens, neq);
-		}
-	}
+  // Copy sensitivities to output container, if present
+  if (yS != nullptr) {
+    int flag = CVodeGetSens(cvode_mem, &tretSensitivities, yS);
+    if(flag < CV_SUCCESS) {
+      throw std::runtime_error("Error in CVodeGetSens: Could not extract sensitivities.");
+    } else {
+      storeSensitivities(yS, outputSensitivities, neq, Ns, t);
+    }
+  }
 }

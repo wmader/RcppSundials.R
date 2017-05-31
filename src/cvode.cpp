@@ -225,11 +225,8 @@ Rcpp::NumericMatrix wrap_cvodes(Rcpp::NumericVector times,
     }
   }
 
-    // With y and yS set up, lets check if there is an event right at the start
-    // which changes initial settings.
-    auto isEvents = events_.nrows() > 0;
-
     // Create event vector
+    auto isEvents = events_.nrows() > 0;
     auto events = isEvents ? createEventVector(events_) : std::vector<Event>();
 
     // Setup first event
@@ -242,15 +239,6 @@ Rcpp::NumericMatrix wrap_cvodes(Rcpp::NumericVector times,
             setEvent(events, y, yS, times[0], neq);
         }
     }
-
-
-  // Initialize output matrix
-  // As armadillo is column-major, output containers are allocated such that
-  // each column refers to one time point.
-  const int nTimepoints = times.size();
-  arma::mat outputStates(neq, nTimepoints);
-
-
 
 
   //////////////////////
@@ -378,21 +366,22 @@ Rcpp::NumericMatrix wrap_cvodes(Rcpp::NumericVector times,
 
 
 
+    // Initialize output matrix
+    // As armadillo is column-major, output containers are allocated such that
+    // each column refers to one time point.
+    const int nTimepoints = times.size();
+    arma::mat outputStates(neq, nTimepoints);
+
   // Store initials in output matrices. Initials are possibly altered by events.
   // States
-  std::copy(NV_DATA_S(y), NV_DATA_S(y) + neq, outputStates.begin_col(0));
+  storeStates(y, outputStates, neq, 0);
   // Sensitivities
   const int nPar = parameters.size();
   const int nSens = neq * (neq + nPar);
   arma::mat outputSensitivities;
   if (isSens) {
     outputSensitivities.set_size(nSens, nTimepoints);
-    auto itOutSens = outputSensitivities.begin_col(0);
-    for(auto j = 0; j < Ns; ++j) {
-      auto sensData = NV_DATA_S(yS[j]);
-      std::copy(sensData, sensData + neq, itOutSens);
-      std::advance(itOutSens, neq);
-    }
+    storeSensitivities(yS, outputSensitivities, neq, Ns, 0);
   }
 
 
@@ -410,21 +399,15 @@ Rcpp::NumericMatrix wrap_cvodes(Rcpp::NumericVector times,
 
 	  // Handle events
 	  if(flag == CV_TSTOP_RETURN) {
-		  std::cout << "Handle event at time point: " << tretStates << std::endl;
-
-		  // Pop from the back of the reverse-sorted event vector all elements
-		  // belonging to the current timepoint.
-		  // cOde hands changes to states and sensitivities in one big block.
-		  // To figure our if a specific change affect a state or a sensitivity
-		  // we check the position of the variables withing the ode system. If
-		  // this number is larger than the neq, it must be a sensitivity.
-		  flag = CVodeGetSens(cvode_mem, &tretSensitivities, yS);
+                  if (isSens) flag = CVodeGetSens(cvode_mem, &tretSensitivities, yS);
 		  setEvent(events, y, yS, tretStates, neq);
-                  // Reset states and sensitivities
+                  // Reset cvode, states and sensitivities
                   int flag = CVodeReInit(cvode_mem, tretStates, y);
                   cvSuccess(flag, "Failure: CVode could not be re-initialized.");
-                  flag = CVodeSensReInit(cvode_mem, CV_SIMULTANEOUS, yS);
-                  cvSuccess(flag, "Failure: Sensitivities could not be re-initialized.");
+                  if (isSens) {
+                    flag = CVodeSensReInit(cvode_mem, CV_SIMULTANEOUS, yS);
+                    cvSuccess(flag, "Failure: Sensitivities could not be re-initialized.");
+                  }
 
 		  // Set stop time for the next event
 		  if (events.size() > 0) {
@@ -476,8 +459,7 @@ Rcpp::NumericMatrix wrap_cvodes(Rcpp::NumericVector times,
       // Read out results //
       //////////////////////
 
-      storeResult(cvode_mem, y, yS, outputStates, outputSensitivities,
-				  tretSensitivities, t, neq, Ns);
+      storeResult(cvode_mem, y, yS, outputStates, outputSensitivities, tretSensitivities, t, neq, Ns);
 
     }
   } catch(std::exception &ex) {
@@ -493,41 +475,14 @@ Rcpp::NumericMatrix wrap_cvodes(Rcpp::NumericVector times,
   }
 
 
-//   // If we have observed variables we call the model function again
-//   if(noutObserved > 0 && flag >= 0.0) {
-//     for(unsigned int i = 1; i < nTimepoints; ++i) {
-//       // Get the simulate state variables
-//       for(auto j = 0; j < neq; j++) stateInits[j] = output(i,j + 1);
-//       // Call the model function to retrieve total number of outputs and initial values for derived variables
-//       std::array<std::vector<double>, 2> model_call  = model(times[i], stateInits, parameters);
-//       // Derived variables already stored by the interface function
-//       for(auto h = 0; h < noutObserved; ++h) output(i, h + 1 + neq) = model_call[1][h];
-//     }
-//   }
-
-
-
   ////////////////////////
   // Cleanup and return //
   ////////////////////////
 
   // Free our resources
-  if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
-  if(yS == nullptr) {free(yS);} else {N_VDestroyVectorArray_Serial(yS, Ns);}
-  if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);}
-
-//   // Subset output for time, noutStates, and noutObserved.
-//   std::vector<unsigned int> idxAux(1 + noutStates + noutObserved, 0);
-//   iota(idxAux.begin() + 1, idxAux.begin() + 1 + noutStates, 1);
-//   iota(idxAux.begin() + 1 + noutStates, idxAux.end(), neq + 1);
-//   arma::uvec idx(idxAux);
-//
-//   if(isSens) {
-//     return Rcpp::wrap(static_cast<arma::mat>(arma::join_horiz(output.cols(idx), outSensitivities)));
-//   } else {
-//     return Rcpp::wrap(static_cast<arma::mat>(output.cols(idx)));
-//   }
-
+  y == nullptr ? free(y) : N_VDestroy_Serial(y);
+  yS == nullptr ? free(yS) : N_VDestroyVectorArray_Serial(yS, Ns);
+  cvode_mem == nullptr ? free(cvode_mem) : CVodeFree(&cvode_mem);
 
   // Prepare output and return
   arma::mat outputTime(nTimepoints, 1);
