@@ -27,7 +27,6 @@
 #include <nvector/nvector_serial.h>
 #include <datatypes.h>
 
-
 /** Interfacing C++ state description with cvodes.
  *
  * This function's signature matches cvodes requested signature for the
@@ -42,32 +41,33 @@
  * \param t The current value of the independent variable.
  * \param y The current value of the dependent variable vector, y(t).
  * \param ydot The output vector f(t,y).
- * \param user_data A pointer to user data, the same as the user data parameter passed to CVodeSetUserData.
+ * \param user_data A pointer to user data, the same as the user data parameter passed to
+ * CVodeSetUserData.
  */
-int CVRhsFnIf(double t, N_Vector y, N_Vector ydot, void* user_data) {
-  UserDataIVP* userData = static_cast<UserDataIVP*>(user_data);
+int CVRhsFnIf(double t, N_Vector y, N_Vector ydot, void* user_data)
+{
+    UserDataIVP* userData = static_cast<UserDataIVP*>(user_data);
 
-  // Transform N_Vector to std::vector
-  const auto neq = userData->neq;
+    // Transform N_Vector to std::vector
+    const auto neq = userData->neq;
 
-  // Copy current states
-  std::vector<double> statesCur(neq);
-  const auto statesData = NV_DATA_S(y);
-  std::copy(statesData, statesData + neq, statesCur.begin());
+    // Copy current states
+    std::vector<double> statesCur(neq);
+    const auto          statesData = NV_DATA_S(y);
+    std::copy(statesData, statesData + neq, statesCur.begin());
 
-  // Calculate states
-  // First dimension: states
-  // Second dimension: observables, functions of states
-  std::array<std::vector<double>, 2> states = userData->states(t, statesCur, userData->parameters);
+    // Calculate states
+    // First dimension: states
+    // Second dimension: observables, functions of states
+    std::array<std::vector<double>, 2> states =
+        userData->states(t, statesCur, userData->parameters);
 
-  // Copy states into result container
-  std::copy(states[0].cbegin(), states[0].cend(), NV_DATA_S(ydot));
+    // Copy states into result container
+    std::copy(states[0].cbegin(), states[0].cend(), NV_DATA_S(ydot));
 
-  // Indicate success
-  return 0;
+    // Indicate success
+    return 0;
 }
-
-
 
 /** Interfacing C++ jacobian description with cvodes.
  *
@@ -85,41 +85,38 @@ int CVRhsFnIf(double t, N_Vector y, N_Vector ydot, void* user_data) {
  * \param y The current value of the dependent variable vector, namely the predicted values of y(t).
  * \param fy The current value of the vector f(t,y).
  * \param Jac The output dense Jacobian matrix (of type DlsMat).
- * \param user_data A pointer to user data, the same as the user data parameter passed to CVodeSetUserData.
+ * \param user_data A pointer to user data, the same as the user data parameter passed to
+ * CVodeSetUserData.
  * \param tmp1 N Vectors of length N which can be used as temporary storage.
  * \param tmp2 N Vectors of length N which can be used as temporary storage.
  * \param tmp3 N Vectors of length N which can be used as temporary storage.
  */
-int CVDlsDenseJacFnIf(long int N, double t,
-                      N_Vector y, N_Vector fy,
-                      DlsMat Jac,
-                      void *user_data,
-                      N_Vector tmp1, N_Vector tmp2, N_Vector tmp3) {
-  UserDataIVP* userData = static_cast<UserDataIVP*>(user_data);
+int CVDlsDenseJacFnIf(long int N, double t, N_Vector y, N_Vector fy, DlsMat Jac, void* user_data,
+                      N_Vector tmp1, N_Vector tmp2, N_Vector tmp3)
+{
+    UserDataIVP* userData = static_cast<UserDataIVP*>(user_data);
 
-  // Transform N_Vector to std::vector
-  const auto neq = userData->neq;
+    // Transform N_Vector to std::vector
+    const auto neq = userData->neq;
 
-  // Copy current states
-  std::vector<double> states(neq);
-  const auto statesData = NV_DATA_S(y);
-  std::copy(statesData, statesData + neq, states.begin());
+    // Copy current states
+    std::vector<double> states(neq);
+    const auto          statesData = NV_DATA_S(y);
+    std::copy(statesData, statesData + neq, states.begin());
 
-  // Calculate Jacobian
-  auto jacobian = userData->jacobian(t, states, userData->parameters);
+    // Calculate Jacobian
+    auto jacobian = userData->jacobian(t, states, userData->parameters);
 
-  // Copy jacobian into result container
-  auto itcJac = jacobian.cbegin();
-  for(int i = 0; i < neq; ++i) {
-    std::copy(itcJac, itcJac + neq, DENSE_COL(Jac, i));
-    std::advance(itcJac, neq);
-  }
+    // Copy jacobian into result container
+    auto itcJac = jacobian.cbegin();
+    for (int i = 0; i < neq; ++i) {
+        std::copy(itcJac, itcJac + neq, DENSE_COL(Jac, i));
+        std::advance(itcJac, neq);
+    }
 
-  // Indicate success.
-  return 0;
+    // Indicate success.
+    return 0;
 }
-
-
 
 /** Interfacing C++ sensitivity description with cvodes.
  *
@@ -138,49 +135,49 @@ int CVDlsDenseJacFnIf(long int N, double t,
  * \param y The current value of the state vector, y(t).
  * \param ydot The current value of the right-hand side of the state equations.
  * \param yS The current values of the sensitivity vectors.
- * \param ySdot The output of CVSensRhsFn. On exit it must contain the sensitivity right-hand side vectors.
- * \param user_data A pointer to user data, the same as the user data parameter passed to CVodeSetUserData.
+ * \param ySdot The output of CVSensRhsFn. On exit it must contain the sensitivity right-hand side
+ * vectors.
+ * \param user_data A pointer to user data, the same as the user data parameter passed to
+ * CVodeSetUserData.
  * \param tmp1 N Vectors of length N which can be used as temporary storage.
  * \param tmp2 N Vectors of length N which can be used as temporary storage.
  */
-int CVSensRhsFnIf(int Ns, double t,
-                  N_Vector y, N_Vector ydot,
-                  N_Vector *yS, N_Vector *ySdot,
-                  void *user_data,
-                  N_Vector tmp1, N_Vector tmp2) {
-  UserDataIVP* userData = static_cast<UserDataIVP*>(user_data);
+int CVSensRhsFnIf(int Ns, double t, N_Vector y, N_Vector ydot, N_Vector* yS, N_Vector* ySdot,
+                  void* user_data, N_Vector tmp1, N_Vector tmp2)
+{
+    UserDataIVP* userData = static_cast<UserDataIVP*>(user_data);
 
-  // Transform N_Vector to std::vector
-  const auto& parameters = userData->parameters;
-  const auto neq = userData->neq;
-  const auto npar = parameters.size();
+    // Transform N_Vector to std::vector
+    const auto& parameters = userData->parameters;
+    const auto  neq        = userData->neq;
+    const auto  npar       = parameters.size();
 
-  // Copy current states
-  std::vector<double> states(neq);
-  const auto statesData = NV_DATA_S(y);
-  std::copy(statesData, statesData + neq, states.begin());
+    // Copy current states
+    std::vector<double> states(neq);
+    const auto          statesData = NV_DATA_S(y);
+    std::copy(statesData, statesData + neq, states.begin());
 
-  // Copy current sensitivities
-  std::vector<double> sensCur(Ns * neq);
-  auto itSensCur = sensCur.begin();
-  for(auto i = 0; i < Ns; ++i) {
-    const auto sensitivityData = NV_DATA_S(yS[i]);
-    std::copy(sensitivityData, sensitivityData + neq, itSensCur);
-    std::advance(itSensCur, neq);
-  }
+    // Copy current sensitivities
+    std::vector<double> sensCur(Ns * neq);
+    auto                itSensCur = sensCur.begin();
+    for (auto i = 0; i < Ns; ++i) {
+        const auto sensitivityData = NV_DATA_S(yS[i]);
+        std::copy(sensitivityData, sensitivityData + neq, itSensCur);
+        std::advance(itSensCur, neq);
+    }
 
-  // Calculate sensitivities
-  std::vector<double> sensitivities = userData->sensitivities(t, states, sensCur, parameters);
+    // Calculate sensitivities
+    std::vector<double> sensitivities = userData->sensitivities(t, states, sensCur, parameters);
 
-  // Copy sensitivities into result container
-  auto itcSens = sensitivities.cbegin();
-  for(int i = 0; i < neq + npar; ++i) {
-    std::copy(itcSens, itcSens + neq, NV_DATA_S(ySdot[i]));
-    std::advance(itcSens, neq);
-  }
+    // Copy sensitivities into result container
+    auto itcSens = sensitivities.cbegin();
+    for (int i = 0; i < neq + npar; ++i) {
+        std::copy(itcSens, itcSens + neq, NV_DATA_S(ySdot[i]));
+        std::advance(itcSens, neq);
+    }
 
-  // Indicate success.
-  return 0;
+    // Indicate success.
+    return 0;
 }
 
 #endif

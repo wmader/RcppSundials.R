@@ -11,10 +11,7 @@
 #include <interfaces.h>
 #include <support.h>
 
-
-
 // [[Rcpp::interfaces(r, cpp)]]
-
 
 //' Solve an inital value problem with cvodes.
 //'
@@ -114,7 +111,8 @@
 //'     attribute \code{address} of \code{\link[base]{getNativeSymbolInfo}}. The
 //'     signature of the model function must comply to
 //'
-//'     \code{std::array<std::vector<double>, 2> (const double& t, const std::vector<double>& states,
+//'     \code{std::array<std::vector<double>, 2> (const double& t, const std::vector<double>&
+// states,
 //'     const std::vector<double>& parameters, const std::vector<double>& forcings)}
 //'
 //'     Return vector \code{std::array<std::vector<double>, 2>}
@@ -148,7 +146,8 @@
 //'     model. Again, this address is the attribute \code{address} obtained
 //'     from the call to \code{\link[base]{getNativeSymbolInfo()}}. The function
 //'     must have the signature
-//'     \code{arma::mat (const double& t, const std::vector<double>& states, const std::vector<double>& parameters, const std::vector<double>& forcings)}
+//'     \code{arma::mat (const double& t, const std::vector<double>& states, const
+// std::vector<double>& parameters, const std::vector<double>& forcings)}
 //'     Returned is the Jacobian matrix as an \code{arma::mat} from the
 //'     Armadillo package.
 //'
@@ -180,54 +179,54 @@
 //'
 //' @export
 // [[Rcpp::export]]
-Rcpp::NumericMatrix wrap_cvodes(Rcpp::NumericVector times,
-                                Rcpp::NumericVector states_,
-                                Rcpp::NumericVector parameters_,
-                                Rcpp::NumericVector initSens_,
-                                Rcpp::List forcings_data_,
-                                Rcpp::DataFrame events_,
-                                Rcpp::List settings,
-                                SEXP model_, SEXP jacobian_, SEXP sens_) {
-  // Cast function pointers
-  statesRHS* model = reinterpret_cast<statesRHS*>(R_ExternalPtrAddr(model_));
+Rcpp::NumericMatrix wrap_cvodes(Rcpp::NumericVector times, Rcpp::NumericVector states_,
+                                Rcpp::NumericVector parameters_, Rcpp::NumericVector initSens_,
+                                Rcpp::List forcings_data_, Rcpp::DataFrame events_,
+                                Rcpp::List settings, SEXP model_, SEXP jacobian_, SEXP sens_)
+{
+    // Cast function pointers
+    statesRHS* model = reinterpret_cast<statesRHS*>(R_ExternalPtrAddr(model_));
 
-  auto isJac = Rcpp::as<bool>(settings["jacobian"]);
-  statesJacRHS* jacobian = isJac ? reinterpret_cast<statesJacRHS*>(R_ExternalPtrAddr(jacobian_)) : nullptr;
+    auto          isJac = Rcpp::as<bool>(settings["jacobian"]);
+    statesJacRHS* jacobian =
+        isJac ? reinterpret_cast<statesJacRHS*>(R_ExternalPtrAddr(jacobian_)) : nullptr;
 
-  auto isSens = Rcpp::as<bool>(settings["sensitivities"]);
-  sensitivitiesRHS* sensitivities = isSens ? reinterpret_cast<sensitivitiesRHS*>(R_ExternalPtrAddr(sens_)) : nullptr;
+    auto              isSens = Rcpp::as<bool>(settings["sensitivities"]);
+    sensitivitiesRHS* sensitivities =
+        isSens ? reinterpret_cast<sensitivitiesRHS*>(R_ExternalPtrAddr(sens_)) : nullptr;
 
-  // Convert input to standard containers
-  auto stateInits(Rcpp::as<std::vector<double>>(states_));
-  auto parameters(Rcpp::as<std::vector<double>>(parameters_));
-  auto initSensitivities = isSens ? Rcpp::as<std::vector<double>>(initSens_) : std::vector<double>();
+    // Convert input to standard containers
+    auto stateInits(Rcpp::as<std::vector<double>>(states_));
+    auto parameters(Rcpp::as<std::vector<double>>(parameters_));
+    auto initSensitivities =
+        isSens ? Rcpp::as<std::vector<double>>(initSens_) : std::vector<double>();
 
-  // Test model evaluation
-  const int neq = stateInits.size();
-  checkModel(times[0], neq, stateInits, parameters, model);
+    // Test model evaluation
+    const int neq = stateInits.size();
+    checkModel(times[0], neq, stateInits, parameters, model);
 
-  // Create cvodes internal data structures
-  // States
-  N_Vector y = N_VNew_Serial(neq);
-  // Sensitivities
-  const int Ns = neq + parameters.size();
-  N_Vector* yS = isSens ? N_VCloneVectorArray_Serial(Ns, y) : nullptr;
+    // Create cvodes internal data structures
+    // States
+    N_Vector y = N_VNew_Serial(neq);
+    // Sensitivities
+    const int Ns = neq + parameters.size();
+    N_Vector* yS = isSens ? N_VCloneVectorArray_Serial(Ns, y) : nullptr;
 
-  // Copy initial states into cvode state container y.
-  std::copy(stateInits.cbegin(), stateInits.cend(), NV_DATA_S(y));
+    // Copy initial states into cvode state container y.
+    std::copy(stateInits.cbegin(), stateInits.cend(), NV_DATA_S(y));
 
-  // Copy initial sensitivities into cvode sensitivity container yS.
-  if (isSens) {
-    auto it = initSensitivities.cbegin();
-    for(int i = 0; i < Ns; ++i) {
-        std::copy(it, it + neq, NV_DATA_S(yS[i]));
-        advance(it, neq);
+    // Copy initial sensitivities into cvode sensitivity container yS.
+    if (isSens) {
+        auto it = initSensitivities.cbegin();
+        for (int i = 0; i < Ns; ++i) {
+            std::copy(it, it + neq, NV_DATA_S(yS[i]));
+            advance(it, neq);
+        }
     }
-  }
 
     // Create event vector
     auto isEvents = events_.nrows() > 0;
-    auto events = isEvents ? createEventVector(events_) : std::vector<Event>();
+    auto events   = isEvents ? createEventVector(events_) : std::vector<Event>();
 
     // Setup first event
     if (isEvents) {
@@ -240,117 +239,151 @@ Rcpp::NumericMatrix wrap_cvodes(Rcpp::NumericVector times,
         }
     }
 
+    //////////////////////
+    // Initialize CVODE //
+    //////////////////////
 
-  //////////////////////
-  // Initialize CVODE //
-  //////////////////////
+    // Instantiate a CVODES solver object
+    void*       cvode_mem = createCVodes(settings);
+    UserDataIVP data_model{neq, parameters, model, jacobian, sensitivities};
 
-  // Instantiate a CVODES solver object
-  void* cvode_mem = createCVodes(settings);
-  UserDataIVP data_model{neq, parameters, model, jacobian, sensitivities};
-
-  try {
-    // Set error output file
-    // FIXME: Errors should go somewhere. Right now, they are simply discarded.
-    int flag = CVodeSetErrFile(cvode_mem, nullptr);
-    cvSuccess(flag, "Error: Setting error output file.");
-
-    // Initialize CVODES solver object
-    flag = CVodeInit(cvode_mem, CVRhsFnIf, times[0], y);
-    cvSuccess(flag, "Could not Initialize CVODES solver object.");
-
-    // Set absolute and relative tolerance for integration
-    flag = CVodeSStolerances(cvode_mem, settings["rtol"], settings["atol"]);
-    cvSuccess(flag, "Error on setting integration tolerance.");
-
-    // Select linear solver CVDENSE
-    flag = CVDense(cvode_mem, neq);
-    cvSuccess(flag, "Could not set dense linear solver.");
-
-    // Attache user data to CVODES memory block
-    flag = CVodeSetUserData(cvode_mem, &data_model);
-    cvSuccess(flag, "Failure: Attach user data.");
-
-    // Do we supply equations for the Jacobian? If so, set them.
-    if(Rcpp::as<bool>(settings["jacobian"])) {
-      flag = CVDlsSetDenseJacFn(cvode_mem, CVDlsDenseJacFnIf);
-      cvSuccess(flag, "Failure: Setup user-supplied Jacobian function.");
-    }
-
-    // Set maximum number of steps taken by the solver to reach next output time
-    flag = CVodeSetMaxNumSteps(cvode_mem, settings["maxsteps"]);
-    cvSuccess(flag, "Could not set maximum number of steps.");
-
-    // Set maximum order of the linear multistep method
-    flag = CVodeSetMaxOrd(cvode_mem, settings["maxord"]);
-    cvSuccess(flag, "Error: Specifying maximum order of linear multistep method. ");
-
-    // Set initial step size
-    flag = CVodeSetInitStep(cvode_mem, settings["hini"]);
-    cvSuccess(flag, "Error: Setting initial step size.");
-
-    // Set minimum step size
-    flag = CVodeSetMinStep(cvode_mem, settings["hmin"]);
-    cvSuccess(flag, "Error:S etting minimum step size.");
-
-    // Set the maximum step size
-    flag = CVodeSetMaxStep(cvode_mem, settings["hmax"]);
-    cvSuccess(flag, "Error: Setting maximum step size.");
-
-    // Set the maximum number of error test fails per step
-    flag = CVodeSetMaxErrTestFails(cvode_mem, settings["maxerr"]);
-    cvSuccess(flag, "Error: Setting error test fails.");
-
-    // Set the maximum number of nonlinear iterations per step
-    flag = CVodeSetMaxNonlinIters(cvode_mem, settings["maxnonlin"]);
-    cvSuccess(flag, "Error: Setting maximum number of nonlinear solver iterations.");
-
-    // Set the maximum number of nonlinear solver convergence failures per step
-    flag = CVodeSetMaxConvFails(cvode_mem, settings["maxconvfail"]);
-    cvSuccess(flag, "Error: Setting maximum number of nonlinear solver convergence failures.");
-
-    // Should BDF stability limit detection
-    flag = CVodeSetStabLimDet(cvode_mem, Rcpp::as<bool>(settings["stability"]));
-    cvSuccess(flag, "Error: Setting BDF stability limit detection.");
-  }
-  catch(std::exception &ex) {
-    if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
-    if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);}
-    Rcpp::stop(ex.what());
-  } catch(...) {
-    if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
-    if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);}
-    Rcpp::stop("Unknown error on initializing the CVODES ");
-  }
-
-
-
-  //////////////////////////////
-  // Initialize sensitivities //
-  //////////////////////////////
-  if(isSens) {
     try {
-      // Switch on sensitivity calculation in cvodes
-      int flag = CVodeSensInit(cvode_mem, Ns, CV_SIMULTANEOUS, CVSensRhsFnIf, yS);
-      cvSuccess(flag, "Error: Switch on sensitivities.");
+        // Set error output file
+        // FIXME: Errors should go somewhere. Right now, they are simply discarded.
+        int flag = CVodeSetErrFile(cvode_mem, nullptr);
+        cvSuccess(flag, "Error: Setting error output file.");
 
-      // FIXME: Use scalar tolerances.
-      flag = CVodeSensEEtolerances(cvode_mem);
-      cvSuccess(flag, "Error: Setting sensitivity tolerances.");
-    } catch(std::exception &ex) {
-      if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
-      if(yS == nullptr) {free(yS);} else {N_VDestroyVectorArray_Serial(yS, Ns);}
-      if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);}
-      Rcpp::stop(ex.what());
-    } catch(...) {
-      if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
-      if(yS == nullptr) {free(yS);} else {N_VDestroyVectorArray_Serial(yS, Ns);}
-      if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);}
-      Rcpp::stop("C++ exception (unknown reason)");
+        // Initialize CVODES solver object
+        flag = CVodeInit(cvode_mem, CVRhsFnIf, times[0], y);
+        cvSuccess(flag, "Could not Initialize CVODES solver object.");
+
+        // Set absolute and relative tolerance for integration
+        flag = CVodeSStolerances(cvode_mem, settings["rtol"], settings["atol"]);
+        cvSuccess(flag, "Error on setting integration tolerance.");
+
+        // Select linear solver CVDENSE
+        flag = CVDense(cvode_mem, neq);
+        cvSuccess(flag, "Could not set dense linear solver.");
+
+        // Attache user data to CVODES memory block
+        flag = CVodeSetUserData(cvode_mem, &data_model);
+        cvSuccess(flag, "Failure: Attach user data.");
+
+        // Do we supply equations for the Jacobian? If so, set them.
+        if (Rcpp::as<bool>(settings["jacobian"])) {
+            flag = CVDlsSetDenseJacFn(cvode_mem, CVDlsDenseJacFnIf);
+            cvSuccess(flag, "Failure: Setup user-supplied Jacobian function.");
+        }
+
+        // Set maximum number of steps taken by the solver to reach next output time
+        flag = CVodeSetMaxNumSteps(cvode_mem, settings["maxsteps"]);
+        cvSuccess(flag, "Could not set maximum number of steps.");
+
+        // Set maximum order of the linear multistep method
+        flag = CVodeSetMaxOrd(cvode_mem, settings["maxord"]);
+        cvSuccess(flag, "Error: Specifying maximum order of linear multistep method. ");
+
+        // Set initial step size
+        flag = CVodeSetInitStep(cvode_mem, settings["hini"]);
+        cvSuccess(flag, "Error: Setting initial step size.");
+
+        // Set minimum step size
+        flag = CVodeSetMinStep(cvode_mem, settings["hmin"]);
+        cvSuccess(flag, "Error:S etting minimum step size.");
+
+        // Set the maximum step size
+        flag = CVodeSetMaxStep(cvode_mem, settings["hmax"]);
+        cvSuccess(flag, "Error: Setting maximum step size.");
+
+        // Set the maximum number of error test fails per step
+        flag = CVodeSetMaxErrTestFails(cvode_mem, settings["maxerr"]);
+        cvSuccess(flag, "Error: Setting error test fails.");
+
+        // Set the maximum number of nonlinear iterations per step
+        flag = CVodeSetMaxNonlinIters(cvode_mem, settings["maxnonlin"]);
+        cvSuccess(flag, "Error: Setting maximum number of nonlinear solver iterations.");
+
+        // Set the maximum number of nonlinear solver convergence failures per step
+        flag = CVodeSetMaxConvFails(cvode_mem, settings["maxconvfail"]);
+        cvSuccess(flag, "Error: Setting maximum number of nonlinear solver convergence failures.");
+
+        // Should BDF stability limit detection
+        flag = CVodeSetStabLimDet(cvode_mem, Rcpp::as<bool>(settings["stability"]));
+        cvSuccess(flag, "Error: Setting BDF stability limit detection.");
+    } catch (std::exception& ex) {
+        if (y == nullptr) {
+            free(y);
+        } else {
+            N_VDestroy_Serial(y);
+        }
+        if (cvode_mem == nullptr) {
+            free(cvode_mem);
+        } else {
+            CVodeFree(&cvode_mem);
+        }
+        Rcpp::stop(ex.what());
+    } catch (...) {
+        if (y == nullptr) {
+            free(y);
+        } else {
+            N_VDestroy_Serial(y);
+        }
+        if (cvode_mem == nullptr) {
+            free(cvode_mem);
+        } else {
+            CVodeFree(&cvode_mem);
+        }
+        Rcpp::stop("Unknown error on initializing the CVODES ");
     }
-  }
 
+    //////////////////////////////
+    // Initialize sensitivities //
+    //////////////////////////////
+    if (isSens) {
+        try {
+            // Switch on sensitivity calculation in cvodes
+            int flag = CVodeSensInit(cvode_mem, Ns, CV_SIMULTANEOUS, CVSensRhsFnIf, yS);
+            cvSuccess(flag, "Error: Switch on sensitivities.");
 
+            // FIXME: Use scalar tolerances.
+            flag = CVodeSensEEtolerances(cvode_mem);
+            cvSuccess(flag, "Error: Setting sensitivity tolerances.");
+        } catch (std::exception& ex) {
+            if (y == nullptr) {
+                free(y);
+            } else {
+                N_VDestroy_Serial(y);
+            }
+            if (yS == nullptr) {
+                free(yS);
+            } else {
+                N_VDestroyVectorArray_Serial(yS, Ns);
+            }
+            if (cvode_mem == nullptr) {
+                free(cvode_mem);
+            } else {
+                CVodeFree(&cvode_mem);
+            }
+            Rcpp::stop(ex.what());
+        } catch (...) {
+            if (y == nullptr) {
+                free(y);
+            } else {
+                N_VDestroy_Serial(y);
+            }
+            if (yS == nullptr) {
+                free(yS);
+            } else {
+                N_VDestroyVectorArray_Serial(yS, Ns);
+            }
+            if (cvode_mem == nullptr) {
+                free(cvode_mem);
+            } else {
+                CVodeFree(&cvode_mem);
+            }
+            Rcpp::stop("C++ exception (unknown reason)");
+        }
+    }
 
     ////////////
     // Events //
@@ -364,139 +397,188 @@ Rcpp::NumericMatrix wrap_cvodes(Rcpp::NumericVector times,
         cvSuccess(flag, "Failure: Set event time");
     }
 
-
-
     // Initialize output matrix
     // As armadillo is column-major, output containers are allocated such that
     // each column refers to one time point.
     const int nTimepoints = times.size();
     arma::mat outputStates(neq, nTimepoints);
 
-  // Store initials in output matrices. Initials are possibly altered by events.
-  // States
-  storeStates(y, outputStates, neq, 0);
-  // Sensitivities
-  const int nPar = parameters.size();
-  const int nSens = neq * (neq + nPar);
-  arma::mat outputSensitivities;
-  if (isSens) {
-    outputSensitivities.set_size(nSens, nTimepoints);
-    storeSensitivities(yS, outputSensitivities, neq, Ns, 0);
-  }
+    // Store initials in output matrices. Initials are possibly altered by events.
+    // States
+    storeStates(y, outputStates, neq, 0);
+    // Sensitivities
+    const int nPar  = parameters.size();
+    const int nSens = neq * (neq + nPar);
+    arma::mat outputSensitivities;
+    if (isSens) {
+        outputSensitivities.set_size(nSens, nTimepoints);
+        storeSensitivities(yS, outputSensitivities, neq, Ns, 0);
+    }
 
+    ////////////////////
+    // Main time loop //
+    ////////////////////
+    try {
+        // Prepare
+        double tretStates        = 0;
+        double tretSensitivities = 0;
 
-  ////////////////////
-  // Main time loop //
-  ////////////////////
-  try {
-    // Prepare
-    double tretStates = 0;
-    double tretSensitivities = 0;
+        // In each time-step, solutions are advanced by calling CVode
+        for (int t = 1; t < nTimepoints; ++t) {
+            int flag = CVode(cvode_mem, times[t], y, &tretStates, CV_NORMAL);
 
-    // In each time-step, solutions are advanced by calling CVode
-    for(int t = 1; t < nTimepoints; ++t) {
-      int flag = CVode(cvode_mem, times[t], y, &tretStates, CV_NORMAL);
-
-	  // Handle events
-	  if(flag == CV_TSTOP_RETURN) {
-                  if (isSens) flag = CVodeGetSens(cvode_mem, &tretSensitivities, yS);
-		  setEvent(events, y, yS, tretStates, neq);
-                  // Reset cvode, states and sensitivities
-                  int flag = CVodeReInit(cvode_mem, tretStates, y);
-                  cvSuccess(flag, "Failure: CVode could not be re-initialized.");
-                  if (isSens) {
+            // Handle events
+            if (flag == CV_TSTOP_RETURN) {
+                if (isSens)
+                    flag = CVodeGetSens(cvode_mem, &tretSensitivities, yS);
+                setEvent(events, y, yS, tretStates, neq);
+                // Reset cvode, states and sensitivities
+                int flag = CVodeReInit(cvode_mem, tretStates, y);
+                cvSuccess(flag, "Failure: CVode could not be re-initialized.");
+                if (isSens) {
                     flag = CVodeSensReInit(cvode_mem, CV_SIMULTANEOUS, yS);
                     cvSuccess(flag, "Failure: Sensitivities could not be re-initialized.");
-                  }
+                }
 
-		  // Set stop time for the next event
-		  if (events.size() > 0) {
-			  int flag = CVodeSetStopTime(cvode_mem, RCONST(events.back().time));
-			  cvSuccess(flag, "Failure: Set event time");
-		  }
-	  }
+                // Set stop time for the next event
+                if (events.size() > 0) {
+                    int flag = CVodeSetStopTime(cvode_mem, RCONST(events.back().time));
+                    cvSuccess(flag, "Failure: Set event time");
+                }
+            }
 
-	  // Handle errors
-      if(flag < CV_SUCCESS) {
-        switch(flag) {
-          case CV_TOO_MUCH_WORK:
-            throw std::runtime_error("The solver took mxstep internal steps but could not reach tout."); break;
-          case CV_TOO_MUCH_ACC:
-            throw std::runtime_error("The solver could not satisfy the accuracy demanded by the user for some internal step"); break;  
-          case CV_ERR_FAILURE:
-            throw std::runtime_error("Error test failures occured too many times during one internal time step or minimum step size was reached"); break;    
-          case CV_CONV_FAILURE:
-            throw std::runtime_error("Convergence test failures occurred too many times during one internal time step or minimum step size was reached."); break;  
-          case CV_LINIT_FAIL:
-            throw std::runtime_error("The linear solver’s initialization function failed."); break; 
-          case CV_LSETUP_FAIL:
-            throw std::runtime_error("The linear solver’s setup function failed in an unrecoverable manner"); break; 
-          case CV_LSOLVE_FAIL:
-            throw std::runtime_error("The linear solver’s solve function failed in an unrecoverable manner"); break;  
-          case CV_RHSFUNC_FAIL:
-            throw std::runtime_error("The right hand side function failed in an unrecoverable manner"); break;
-          case CV_FIRST_RHSFUNC_ERR:
-            throw std::runtime_error("The right-hand side function failed at the first call."); break;    
-          case CV_REPTD_RHSFUNC_ERR:
-            throw std::runtime_error("The right-hand side function had repeated recoverable errors."); break;   
-          case CV_UNREC_RHSFUNC_ERR:
-            throw std::runtime_error("The right-hand side function had a recoverable errors but no recovery is possible."); break; 
-          case CV_BAD_T:
-            throw std::runtime_error("The time t is outside the last step taken."); break; 
-          case CV_BAD_DKY:
-            throw std::runtime_error("The output derivative vector is NULL."); break;   
-          case CV_TOO_CLOSE:
-            throw std::runtime_error("The output and initial times are too close to each other."); break;
-          case CV_ILL_INPUT:
-            throw std::runtime_error("Input to CVode or to its solver illegal or missing."); break;
-          default:
-            throw std::runtime_error(std::string("CVodes error code: ") + std::to_string(flag)); break;
+            // Handle errors
+            if (flag < CV_SUCCESS) {
+                switch (flag) {
+                case CV_TOO_MUCH_WORK:
+                    throw std::runtime_error(
+                        "The solver took mxstep internal steps but could not reach tout.");
+                    break;
+                case CV_TOO_MUCH_ACC:
+                    throw std::runtime_error("The solver could not satisfy the accuracy demanded "
+                                             "by the user for some internal step");
+                    break;
+                case CV_ERR_FAILURE:
+                    throw std::runtime_error("Error test failures occured too many times during "
+                                             "one internal time step or minimum step size was "
+                                             "reached");
+                    break;
+                case CV_CONV_FAILURE:
+                    throw std::runtime_error("Convergence test failures occurred too many times "
+                                             "during one internal time step or minimum step size "
+                                             "was reached.");
+                    break;
+                case CV_LINIT_FAIL:
+                    throw std::runtime_error("The linear solver’s initialization function failed.");
+                    break;
+                case CV_LSETUP_FAIL:
+                    throw std::runtime_error(
+                        "The linear solver’s setup function failed in an unrecoverable manner");
+                    break;
+                case CV_LSOLVE_FAIL:
+                    throw std::runtime_error(
+                        "The linear solver’s solve function failed in an unrecoverable manner");
+                    break;
+                case CV_RHSFUNC_FAIL:
+                    throw std::runtime_error(
+                        "The right hand side function failed in an unrecoverable manner");
+                    break;
+                case CV_FIRST_RHSFUNC_ERR:
+                    throw std::runtime_error(
+                        "The right-hand side function failed at the first call.");
+                    break;
+                case CV_REPTD_RHSFUNC_ERR:
+                    throw std::runtime_error(
+                        "The right-hand side function had repeated recoverable errors.");
+                    break;
+                case CV_UNREC_RHSFUNC_ERR:
+                    throw std::runtime_error("The right-hand side function had a recoverable "
+                                             "errors but no recovery is possible.");
+                    break;
+                case CV_BAD_T:
+                    throw std::runtime_error("The time t is outside the last step taken.");
+                    break;
+                case CV_BAD_DKY:
+                    throw std::runtime_error("The output derivative vector is NULL.");
+                    break;
+                case CV_TOO_CLOSE:
+                    throw std::runtime_error(
+                        "The output and initial times are too close to each other.");
+                    break;
+                case CV_ILL_INPUT:
+                    throw std::runtime_error("Input to CVode or to its solver illegal or missing.");
+                    break;
+                default:
+                    throw std::runtime_error(std::string("CVodes error code: ") +
+                                             std::to_string(flag));
+                    break;
+                }
+            }
+
+            //////////////////////
+            // Read out results //
+            //////////////////////
+
+            storeResult(cvode_mem, y, yS, outputStates, outputSensitivities, tretSensitivities, t,
+                        neq, Ns);
         }
-      }
-
-
-      //////////////////////
-      // Read out results //
-      //////////////////////
-
-      storeResult(cvode_mem, y, yS, outputStates, outputSensitivities, tretSensitivities, t, neq, Ns);
-
+    } catch (std::exception& ex) {
+        if (y == nullptr) {
+            free(y);
+        } else {
+            N_VDestroy_Serial(y);
+        }
+        if (yS == nullptr) {
+            free(yS);
+        } else {
+            N_VDestroyVectorArray_Serial(yS, Ns);
+        }
+        if (cvode_mem == nullptr) {
+            free(cvode_mem);
+        } else {
+            CVodeFree(&cvode_mem);
+        }
+        Rcpp::stop(ex.what());
+    } catch (...) {
+        if (y == nullptr) {
+            free(y);
+        } else {
+            N_VDestroy_Serial(y);
+        }
+        if (yS == nullptr) {
+            free(yS);
+        } else {
+            N_VDestroyVectorArray_Serial(yS, Ns);
+        }
+        if (cvode_mem == nullptr) {
+            free(cvode_mem);
+        } else {
+            CVodeFree(&cvode_mem);
+        }
+        Rcpp::stop("C++ exception (unknown reason)");
     }
-  } catch(std::exception &ex) {
-    if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
-    if(yS == nullptr) {free(yS);} else {N_VDestroyVectorArray_Serial(yS, Ns);}
-    if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);}
-    Rcpp::stop(ex.what());
-  } catch(...) {
-    if(y == nullptr) {free(y);} else {N_VDestroy_Serial(y);}
-    if(yS == nullptr) {free(yS);} else {N_VDestroyVectorArray_Serial(yS, Ns);}
-    if(cvode_mem == nullptr) {free(cvode_mem);} else {CVodeFree(&cvode_mem);}
-    Rcpp::stop("C++ exception (unknown reason)");
-  }
 
+    ////////////////////////
+    // Cleanup and return //
+    ////////////////////////
 
-  ////////////////////////
-  // Cleanup and return //
-  ////////////////////////
+    // Free our resources
+    y == nullptr ? free(y) : N_VDestroy_Serial(y);
+    yS == nullptr ? free(yS) : N_VDestroyVectorArray_Serial(yS, Ns);
+    cvode_mem == nullptr ? free(cvode_mem) : CVodeFree(&cvode_mem);
 
-  // Free our resources
-  y == nullptr ? free(y) : N_VDestroy_Serial(y);
-  yS == nullptr ? free(yS) : N_VDestroyVectorArray_Serial(yS, Ns);
-  cvode_mem == nullptr ? free(cvode_mem) : CVodeFree(&cvode_mem);
+    // Prepare output and return
+    arma::mat outputTime(nTimepoints, 1);
+    std::copy(times.begin(), times.end(), outputTime.begin_col(0));
 
-  // Prepare output and return
-  arma::mat outputTime(nTimepoints, 1);
-  std::copy(times.begin(), times.end(), outputTime.begin_col(0));
+    arma::inplace_trans(outputStates);
+    arma::inplace_trans(outputSensitivities);
 
-  arma::inplace_trans(outputStates);
-  arma::inplace_trans(outputSensitivities);
+    arma::mat output =
+        arma::join_horiz(arma::join_horiz(outputTime, outputStates), outputSensitivities);
 
-  arma::mat output = arma::join_horiz(arma::join_horiz(outputTime, outputStates), outputSensitivities);
-
-  return Rcpp::wrap(static_cast<arma::mat>(output));
+    return Rcpp::wrap(static_cast<arma::mat>(output));
 }
-
-
 
 /////////////////////////////////
 // Discard >n states on return //
