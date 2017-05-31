@@ -26,9 +26,8 @@
 #include <array>
 #include <RcppArmadillo.h>
 
-typedef std::array<std::vector<double>, 2> statesRHS(const double& t,
-                                                     const std::vector<double>& states,
-                                                     const std::vector<double>& parameters);
+typedef std::vector<double> statesRHS(const double& t, const std::vector<double>& states,
+                                      const std::vector<double>& parameters);
 
 typedef std::vector<double> statesJacRHS(const double& t, const std::vector<double>& states,
                                          const std::vector<double>& parameters);

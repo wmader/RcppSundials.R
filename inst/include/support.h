@@ -7,7 +7,7 @@
 void checkModel(int t, int neq, const std::vector<double>& initials,
                 const std::vector<double>& parameters, statesRHS* model)
 {
-    std::array<std::vector<double>, 2> states;
+    std::vector<double> states;
 
     try {
         states = model(t, initials, parameters);
@@ -18,7 +18,7 @@ void checkModel(int t, int neq, const std::vector<double>& initials,
     }
 
     // Check that the number of time derivatives matches with settings
-    if (states[0].size() != neq) {
+    if (states.size() != neq) {
         ::Rf_error(
             "Mismatch between number of state initials and derivatives returned from model.");
     }

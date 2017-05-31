@@ -57,13 +57,10 @@ int CVRhsFnIf(double t, N_Vector y, N_Vector ydot, void* user_data)
     std::copy(statesData, statesData + neq, statesCur.begin());
 
     // Calculate states
-    // First dimension: states
-    // Second dimension: observables, functions of states
-    std::array<std::vector<double>, 2> states =
-        userData->states(t, statesCur, userData->parameters);
+    std::vector<double>states = userData->states(t, statesCur, userData->parameters);
 
     // Copy states into result container
-    std::copy(states[0].cbegin(), states[0].cend(), NV_DATA_S(ydot));
+    std::copy(states.cbegin(), states.cend(), NV_DATA_S(ydot));
 
     // Indicate success
     return 0;
