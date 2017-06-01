@@ -181,8 +181,8 @@
 // [[Rcpp::export]]
 Rcpp::NumericMatrix wrap_cvodes(Rcpp::NumericVector times, Rcpp::NumericVector states_,
                                 Rcpp::NumericVector parameters_, Rcpp::NumericVector initSens_,
-                                Rcpp::DataFrame events_,
-                                Rcpp::List settings, SEXP model_, SEXP jacobian_, SEXP sens_)
+                                Rcpp::DataFrame events_, Rcpp::List settings, SEXP model_,
+                                SEXP jacobian_, SEXP sens_)
 {
     // Cast function pointers
     statesRHS* model = reinterpret_cast<statesRHS*>(R_ExternalPtrAddr(model_));
@@ -222,6 +222,24 @@ Rcpp::NumericMatrix wrap_cvodes(Rcpp::NumericVector times, Rcpp::NumericVector s
             std::copy(it, it + neq, NV_DATA_S(yS[i]));
             advance(it, neq);
         }
+    }
+
+    // Initialize output matrix
+    // As armadillo is column-major, output containers are allocated such that
+    // each column refers to one time point.
+    const int nTimepoints = times.size();
+    arma::mat outputStates(neq, nTimepoints);
+
+    // Store initials in output matrices.
+    // States
+    storeStates(y, outputStates, neq, 0);
+    // Sensitivities
+    const int nPar  = parameters.size();
+    const int nSens = neq * (neq + nPar);
+    arma::mat outputSensitivities;
+    if (isSens) {
+        outputSensitivities.set_size(nSens, nTimepoints);
+        storeSensitivities(yS, outputSensitivities, neq, Ns, 0);
     }
 
     // Create event vector
@@ -397,24 +415,6 @@ Rcpp::NumericMatrix wrap_cvodes(Rcpp::NumericVector times, Rcpp::NumericVector s
         cvSuccess(flag, "Failure: Set event time");
     }
 
-    // Initialize output matrix
-    // As armadillo is column-major, output containers are allocated such that
-    // each column refers to one time point.
-    const int nTimepoints = times.size();
-    arma::mat outputStates(neq, nTimepoints);
-
-    // Store initials in output matrices. Initials are possibly altered by events.
-    // States
-    storeStates(y, outputStates, neq, 0);
-    // Sensitivities
-    const int nPar  = parameters.size();
-    const int nSens = neq * (neq + nPar);
-    arma::mat outputSensitivities;
-    if (isSens) {
-        outputSensitivities.set_size(nSens, nTimepoints);
-        storeSensitivities(yS, outputSensitivities, neq, Ns, 0);
-    }
-
     ////////////////////
     // Main time loop //
     ////////////////////
@@ -426,6 +426,11 @@ Rcpp::NumericMatrix wrap_cvodes(Rcpp::NumericVector times, Rcpp::NumericVector s
         // In each time-step, solutions are advanced by calling CVode
         for (int t = 1; t < nTimepoints; ++t) {
             int flag = CVode(cvode_mem, times[t], y, &tretStates, CV_NORMAL);
+            // Error check integration step
+            checkIntegrationStep(flag);
+            // Store current result
+            storeResult(cvode_mem, y, yS, outputStates, outputSensitivities, tretSensitivities, t,
+                        neq, Ns);
 
             // Handle events
             if (flag == CV_TSTOP_RETURN) {
@@ -434,6 +439,10 @@ Rcpp::NumericMatrix wrap_cvodes(Rcpp::NumericVector times, Rcpp::NumericVector s
                 setEvent(events, y, yS, tretStates, neq);
                 // Reset cvode, states and sensitivities
                 int flag = CVodeReInit(cvode_mem, tretStates, y);
+                // The flag signals the event directly _after_ the event time point.
+                // Therefore, we need to solve for the last time step again.
+                // This is done by decreasing the loop counter t by one.
+                t -= 1;
                 cvSuccess(flag, "Failure: CVode could not be re-initialized.");
                 if (isSens) {
                     flag = CVodeSensReInit(cvode_mem, CV_SIMULTANEOUS, yS);
@@ -446,15 +455,6 @@ Rcpp::NumericMatrix wrap_cvodes(Rcpp::NumericVector times, Rcpp::NumericVector s
                     cvSuccess(flag, "Failure: Set event time");
                 }
             }
-
-            // Handle errors
-            checkIntegrationStep(flag);
-
-            //////////////////////
-            // Read out results //
-            //////////////////////
-            storeResult(cvode_mem, y, yS, outputStates, outputSensitivities, tretSensitivities, t,
-                        neq, Ns);
         }
     } catch (std::exception& ex) {
         if (y == nullptr) {

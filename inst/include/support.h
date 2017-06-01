@@ -75,14 +75,14 @@ void setEvent(std::vector<Event>& events, N_Vector y, N_Vector* yS, double curre
 
     while (events.size() > 0) {
         event = events.back();
+        // Pop from the back of the reverse-sorted event vector all elements
+        // belonging to the current timepoint.
         if (event.time == currentTime) {
             events.pop_back();
         } else {
             break;
         }
 
-        // Pop from the back of the reverse-sorted event vector all elements
-        // belonging to the current timepoint.
         // cOde hands changes to states and sensitivities in one big block.
         // To figure our if a specific change affect a state or a sensitivity
         // we check the position of the variables withing the ode system. If
@@ -146,72 +146,67 @@ void storeResult(void* cvode_mem, N_Vector y, N_Vector* yS, arma::mat& outputSta
     }
 }
 
-
-void checkIntegrationStep(int flag) {
-  if (flag < CV_SUCCESS) {
-    switch (flag) {
-      case CV_TOO_MUCH_WORK:
-        throw std::runtime_error(
-          "The solver took mxstep internal steps but could not reach tout.");
-        break;
-      case CV_TOO_MUCH_ACC:
-        throw std::runtime_error("The solver could not satisfy the accuracy demanded "
-        "by the user for some internal step");
-        break;
-      case CV_ERR_FAILURE:
-        throw std::runtime_error("Error test failures occured too many times during "
-        "one internal time step or minimum step size was "
-        "reached");
-        break;
-      case CV_CONV_FAILURE:
-        throw std::runtime_error("Convergence test failures occurred too many times "
-        "during one internal time step or minimum step size "
-        "was reached.");
-        break;
-      case CV_LINIT_FAIL:
-        throw std::runtime_error("The linear solver’s initialization function failed.");
-        break;
-      case CV_LSETUP_FAIL:
-        throw std::runtime_error(
-          "The linear solver’s setup function failed in an unrecoverable manner");
-        break;
-      case CV_LSOLVE_FAIL:
-        throw std::runtime_error(
-          "The linear solver’s solve function failed in an unrecoverable manner");
-        break;
-      case CV_RHSFUNC_FAIL:
-        throw std::runtime_error(
-          "The right hand side function failed in an unrecoverable manner");
-        break;
-      case CV_FIRST_RHSFUNC_ERR:
-        throw std::runtime_error(
-          "The right-hand side function failed at the first call.");
-        break;
-      case CV_REPTD_RHSFUNC_ERR:
-        throw std::runtime_error(
-          "The right-hand side function had repeated recoverable errors.");
-        break;
-      case CV_UNREC_RHSFUNC_ERR:
-        throw std::runtime_error("The right-hand side function had a recoverable "
-        "errors but no recovery is possible.");
-        break;
-      case CV_BAD_T:
-        throw std::runtime_error("The time t is outside the last step taken.");
-        break;
-      case CV_BAD_DKY:
-        throw std::runtime_error("The output derivative vector is NULL.");
-        break;
-      case CV_TOO_CLOSE:
-        throw std::runtime_error(
-          "The output and initial times are too close to each other.");
-        break;
-      case CV_ILL_INPUT:
-        throw std::runtime_error("Input to CVode or to its solver illegal or missing.");
-        break;
-      default:
-        throw std::runtime_error(std::string("CVodes error code: ") +
-        std::to_string(flag));
-        break;
+void checkIntegrationStep(int flag)
+{
+    if (flag < CV_SUCCESS) {
+        switch (flag) {
+        case CV_TOO_MUCH_WORK:
+            throw std::runtime_error(
+                "The solver took mxstep internal steps but could not reach tout.");
+            break;
+        case CV_TOO_MUCH_ACC:
+            throw std::runtime_error("The solver could not satisfy the accuracy demanded "
+                                     "by the user for some internal step");
+            break;
+        case CV_ERR_FAILURE:
+            throw std::runtime_error("Error test failures occured too many times during "
+                                     "one internal time step or minimum step size was "
+                                     "reached");
+            break;
+        case CV_CONV_FAILURE:
+            throw std::runtime_error("Convergence test failures occurred too many times "
+                                     "during one internal time step or minimum step size "
+                                     "was reached.");
+            break;
+        case CV_LINIT_FAIL:
+            throw std::runtime_error("The linear solver’s initialization function failed.");
+            break;
+        case CV_LSETUP_FAIL:
+            throw std::runtime_error(
+                "The linear solver’s setup function failed in an unrecoverable manner");
+            break;
+        case CV_LSOLVE_FAIL:
+            throw std::runtime_error(
+                "The linear solver’s solve function failed in an unrecoverable manner");
+            break;
+        case CV_RHSFUNC_FAIL:
+            throw std::runtime_error(
+                "The right hand side function failed in an unrecoverable manner");
+            break;
+        case CV_FIRST_RHSFUNC_ERR:
+            throw std::runtime_error("The right-hand side function failed at the first call.");
+            break;
+        case CV_REPTD_RHSFUNC_ERR:
+            throw std::runtime_error(
+                "The right-hand side function had repeated recoverable errors.");
+            break;
+        case CV_UNREC_RHSFUNC_ERR:
+            throw std::runtime_error("The right-hand side function had a recoverable "
+                                     "errors but no recovery is possible.");
+            break;
+        case CV_BAD_T:
+            throw std::runtime_error("The time t is outside the last step taken.");
+            break;
+        case CV_BAD_DKY: throw std::runtime_error("The output derivative vector is NULL."); break;
+        case CV_TOO_CLOSE:
+            throw std::runtime_error("The output and initial times are too close to each other.");
+            break;
+        case CV_ILL_INPUT:
+            throw std::runtime_error("Input to CVode or to its solver illegal or missing.");
+            break;
+        default:
+            throw std::runtime_error(std::string("CVodes error code: ") + std::to_string(flag));
+            break;
+        }
     }
-  }
 }
